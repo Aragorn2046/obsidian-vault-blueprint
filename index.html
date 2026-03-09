@@ -48,6 +48,13 @@
   .leg-check { width: 10px; height: 10px; border-radius: 2px; border: 1px solid #556; display: flex; align-items: center; justify-content: center; font-size: 8px; }
   .leg-check.on { background: rgba(255,255,255,0.1); }
   .leg-dot { width: 8px; height: 8px; border-radius: 2px; }
+  .leg-btns { display: flex; gap: 4px; margin-bottom: 6px; border-bottom: 1px solid #2a2d35; padding-bottom: 6px; }
+  .leg-btn {
+    background: rgba(30,33,40,0.9); border: 1px solid #2a2d35;
+    color: #899; padding: 2px 8px; border-radius: 3px; font-size: 10px;
+    cursor: pointer; flex: 1; text-align: center;
+  }
+  .leg-btn:hover { background: #2a2d35; color: #cdd; }
   #info-panel {
     position: fixed; top: 50%; right: 12px; z-index: 15;
     transform: translateY(-50%);
@@ -169,6 +176,9 @@ var searchQuery = '';
 
 // ===== DATA LOADING =====
 async function loadBlueprint() {
+  // If data is embedded inline (for file:// usage), use it directly
+  if (window.BLUEPRINT_DATA) return window.BLUEPRINT_DATA;
+  // Otherwise fetch from JSON files
   var sources = ['blueprint.json', 'demo-blueprint.json'];
   for (var i = 0; i < sources.length; i++) {
     try {
@@ -984,10 +994,28 @@ document.getElementById('btn-export').addEventListener('click', function() {
 function buildLegend() {
   var legBox = document.getElementById('legend-box');
   while (legBox.firstChild) legBox.removeChild(legBox.firstChild);
+
+  // Select All / Deselect All buttons
+  var btnRow = document.createElement('div');
+  btnRow.className = 'leg-btns';
+  var btnAll = document.createElement('button');
+  btnAll.className = 'leg-btn';
+  btnAll.textContent = 'All';
+  btnAll.addEventListener('click', function() { setAllCategories(true); });
+  var btnNone = document.createElement('button');
+  btnNone.className = 'leg-btn';
+  btnNone.textContent = 'None';
+  btnNone.addEventListener('click', function() { setAllCategories(false); });
+  btnRow.appendChild(btnAll);
+  btnRow.appendChild(btnNone);
+  legBox.appendChild(btnRow);
+
+  // Category rows
   Object.keys(CAT).forEach(function(key) {
     var c = CAT[key];
     var row = document.createElement('div');
     row.className = 'leg';
+    row.dataset.catKey = key;
 
     var check = document.createElement('div');
     check.className = 'leg-check on';
@@ -1003,27 +1031,43 @@ function buildLegend() {
 
     row.addEventListener('click', function() {
       c.visible = !c.visible;
-      if (c.visible) {
-        row.classList.remove('disabled');
-        check.classList.add('on');
-        check.textContent = '\u2713';
-      } else {
-        row.classList.add('disabled');
-        check.classList.remove('on');
-        check.textContent = '';
-      }
-      if (selectedNode && !isNodeVisible(selectedNode)) {
-        selectedNode = null;
-        pathTargetNode = null;
-        pathNodes = null;
-        pathWires = null;
-        updateInfoPanel();
-        updatePathHint();
-      }
+      syncLegendRow(row, c.visible);
+      clearInvisibleSelection();
     });
 
     legBox.appendChild(row);
   });
+}
+
+function syncLegendRow(row, visible) {
+  var check = row.querySelector('.leg-check');
+  if (visible) {
+    row.classList.remove('disabled');
+    check.classList.add('on');
+    check.textContent = '\u2713';
+  } else {
+    row.classList.add('disabled');
+    check.classList.remove('on');
+    check.textContent = '';
+  }
+}
+
+function setAllCategories(visible) {
+  Object.keys(CAT).forEach(function(key) { CAT[key].visible = visible; });
+  var rows = document.querySelectorAll('#legend-box .leg');
+  rows.forEach(function(row) { syncLegendRow(row, visible); });
+  clearInvisibleSelection();
+}
+
+function clearInvisibleSelection() {
+  if (selectedNode && !isNodeVisible(selectedNode)) {
+    selectedNode = null;
+    pathTargetNode = null;
+    pathNodes = null;
+    pathWires = null;
+    updateInfoPanel();
+    updatePathHint();
+  }
 }
 
 // ===== BOOT =====
