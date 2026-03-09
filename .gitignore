@@ -1,0 +1,6 @@
+# Your private vault blueprint — never commit this
+blueprint.json
+
+# OS files
+.DS_Store
+Thumbs.db
