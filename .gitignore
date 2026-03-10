@@ -1,6 +1,8 @@
-# Your private vault blueprint — never commit this
-blueprint.json
-
-# OS files
+node_modules/
+main.js
+*.map
 .DS_Store
 Thumbs.db
+*.swp
+*.swo
+data.json

@@ -1,0 +1,19 @@
+{
+  "name": "vault-blueprint",
+  "version": "0.1.0",
+  "description": "Obsidian plugin — interactive node-graph visualization of your vault's architecture",
+  "main": "main.js",
+  "scripts": {
+    "build": "node esbuild.config.mjs production",
+    "dev": "node esbuild.config.mjs"
+  },
+  "keywords": ["obsidian", "plugin", "vault", "graph", "blueprint"],
+  "author": "Aragorn Meulendijks",
+  "license": "MIT",
+  "devDependencies": {
+    "obsidian": "latest",
+    "@types/node": "^22.0.0",
+    "esbuild": "^0.24.0",
+    "typescript": "^5.7.0"
+  }
+}

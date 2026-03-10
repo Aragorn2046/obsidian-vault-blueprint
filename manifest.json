@@ -1,0 +1,10 @@
+{
+  "id": "vault-blueprint",
+  "name": "Vault Blueprint",
+  "version": "0.1.0",
+  "minAppVersion": "1.0.0",
+  "description": "Interactive node-graph visualization of your vault's architecture and workflow connections.",
+  "author": "Aragorn Meulendijks",
+  "authorUrl": "https://github.com/Aragorn2046",
+  "isDesktopOnly": false
+}

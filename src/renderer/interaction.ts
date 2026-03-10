@@ -1,0 +1,396 @@
+// ─── Interaction — Mouse/keyboard event handling ────────────
+// Zero Obsidian dependencies. Binds to canvas + container only.
+
+import type { NodeDef, WireDef, CategoryDef } from '../types';
+import {
+  type ViewTransform,
+  toWorld,
+  isNodeVisible,
+  getWireNodeIds,
+  resolveWireEndpoint,
+  NODE_W,
+  PIN_H,
+  PIN_R,
+} from './canvas';
+
+// ─── Callbacks ──────────────────────────────────────────────
+
+export interface InteractionCallbacks {
+  onNodeClick: (nodeId: string, shiftKey: boolean, ctrlKey: boolean) => void;
+  onNodeHover: (nodeId: string | null) => void;
+  onWireHover: (wireIndex: number | null) => void;
+  onPanZoomChange: (panX: number, panY: number, zoom: number) => void;
+  onBackgroundClick: () => void;
+  onEscape: () => void;
+  onSearchFocus: () => void;
+  onNodeDragEnd: (nodeId: string, x: number, y: number) => void;
+  onContextMenu: (nodeId: string | null, screenX: number, screenY: number) => void;
+  onWireDraw: (fromNodeId: string, toNodeId: string) => void;
+  requestRedraw: () => void;
+}
+
+// ─── Data Accessors ─────────────────────────────────────────
+
+export interface InteractionDataAccessors {
+  getViewTransform: () => ViewTransform;
+  setViewTransform: (vt: ViewTransform) => void;
+  getNodes: () => NodeDef[];
+  getWires: () => WireDef[];
+  getNodeMap: () => Record<string, NodeDef>;
+  getCategories: () => Record<string, CategoryDef>;
+}
+
+// ─── Listener record for cleanup ────────────────────────────
+
+interface ListenerRecord {
+  target: EventTarget;
+  event: string;
+  handler: EventListenerOrEventListenerObject;
+  options?: AddEventListenerOptions;
+}
+
+// ─── InteractionManager ─────────────────────────────────────
+
+export class InteractionManager {
+  private canvas: HTMLCanvasElement;
+  private container: HTMLDivElement;
+  private data: InteractionDataAccessors;
+  private callbacks: InteractionCallbacks;
+  private listeners: ListenerRecord[] = [];
+
+  // Drag state
+  private dragging: NodeDef | null = null;
+  private dragOff = { x: 0, y: 0 };
+  private isPanning = false;
+  private panStart = { x: 0, y: 0 };
+  private didDrag = false;
+  public mouseX = 0;
+  public mouseY = 0;
+
+  // Wire-draw state
+  private wireDrawing = false;
+  private wireDrawSource: NodeDef | null = null;
+  private wireDrawEndX = 0;
+  private wireDrawEndY = 0;
+
+  constructor(
+    canvas: HTMLCanvasElement,
+    container: HTMLDivElement,
+    data: InteractionDataAccessors,
+    callbacks: InteractionCallbacks,
+  ) {
+    this.canvas = canvas;
+    this.container = container;
+    this.data = data;
+    this.callbacks = callbacks;
+    this.bindEvents();
+  }
+
+  // ─── Event Binding ──────────────────────────────────────
+
+  private addListener(
+    target: EventTarget,
+    event: string,
+    handler: EventListenerOrEventListenerObject,
+    options?: AddEventListenerOptions,
+  ): void {
+    target.addEventListener(event, handler, options);
+    this.listeners.push({ target, event, handler, options });
+  }
+
+  private bindEvents(): void {
+    // Mouse events on canvas
+    this.addListener(this.canvas, 'mousedown', this.onMouseDown);
+    this.addListener(this.canvas, 'mousemove', this.onMouseMove);
+    this.addListener(this.canvas, 'mouseup', this.onMouseUp);
+    this.addListener(this.canvas, 'wheel', this.onWheel, { passive: false });
+    this.addListener(this.canvas, 'contextmenu', this.onContextMenu);
+
+    // Keyboard events on container
+    this.addListener(this.container, 'keydown', this.onKeyDown);
+  }
+
+  // ─── Hit Testing ────────────────────────────────────────
+
+  /** Find node at screen position (reverse iteration — top-drawn nodes first) */
+  getNodeAt(mx: number, my: number): NodeDef | null {
+    const vt = this.data.getViewTransform();
+    const categories = this.data.getCategories();
+    const world = toWorld(mx, my, vt);
+    const nodes = this.data.getNodes();
+
+    for (let i = nodes.length - 1; i >= 0; i--) {
+      const n = nodes[i];
+      if (!isNodeVisible(n, categories)) continue;
+      const nw = (n as any).w ?? NODE_W;
+      const nh = (n as any).h ?? 60;
+      if (
+        world.x >= n.x &&
+        world.x <= n.x + nw &&
+        world.y >= n.y &&
+        world.y <= n.y + nh
+      ) {
+        return n;
+      }
+    }
+    return null;
+  }
+
+  /** Check if a screen position is near an output pin of a node */
+  getPinAt(mx: number, my: number): { node: NodeDef; side: 'out' } | null {
+    const vt = this.data.getViewTransform();
+    const categories = this.data.getCategories();
+    const nodes = this.data.getNodes();
+    const hitR = Math.max(12, PIN_R * vt.zoom * 2); // generous hit area
+
+    for (let i = nodes.length - 1; i >= 0; i--) {
+      const n = nodes[i];
+      if (!isNodeVisible(n, categories)) continue;
+      const nw = (n as any).w ?? NODE_W;
+      const hh = (n as any).headerH ?? 26;
+      const ph = PIN_H * vt.zoom;
+
+      // Check output pins (right edge)
+      for (let pi = 0; pi < n.pins.out.length; pi++) {
+        const px = (n.x + nw) * vt.zoom + vt.panX;
+        const py = (n.y + hh + pi * PIN_H + PIN_H / 2 + 4) * vt.zoom + vt.panY;
+        const dist = Math.sqrt((mx - px) ** 2 + (my - py) ** 2);
+        if (dist < hitR) {
+          return { node: n, side: 'out' };
+        }
+      }
+    }
+    return null;
+  }
+
+  /** Get current wire-draw state for rendering the temporary wire */
+  getWireDrawState(): { active: boolean; sourceNode: NodeDef | null; endX: number; endY: number } {
+    return {
+      active: this.wireDrawing,
+      sourceNode: this.wireDrawSource,
+      endX: this.wireDrawEndX,
+      endY: this.wireDrawEndY,
+    };
+  }
+
+  /** Find wire at screen position (bezier sampling with threshold=8) */
+  getWireAt(mx: number, my: number): number | null {
+    const vt = this.data.getViewTransform();
+    const categories = this.data.getCategories();
+    const nodeMap = this.data.getNodeMap();
+    const wires = this.data.getWires();
+    const threshold = 8;
+
+    for (let idx = wires.length - 1; idx >= 0; idx--) {
+      const w = wires[idx];
+      const ends = getWireNodeIds(w);
+      const fromNode = nodeMap[ends.from];
+      const toNode = nodeMap[ends.to];
+      if (!fromNode || !toNode) continue;
+      if (!isNodeVisible(fromNode, categories) || !isNodeVisible(toNode, categories)) continue;
+
+      const p1 = resolveWireEndpoint(w.from, nodeMap);
+      const p2 = resolveWireEndpoint(w.to, nodeMap);
+      const x1 = p1.x * vt.zoom + vt.panX;
+      const y1 = p1.y * vt.zoom + vt.panY;
+      const x2 = p2.x * vt.zoom + vt.panX;
+      const y2 = p2.y * vt.zoom + vt.panY;
+      const dx = Math.abs(x2 - x1) * 0.5;
+
+      for (let t = 0; t <= 1; t += 0.05) {
+        const it = 1 - t;
+        const bx =
+          it * it * it * x1 +
+          3 * it * it * t * (x1 + dx) +
+          3 * it * t * t * (x2 - dx) +
+          t * t * t * x2;
+        const by =
+          it * it * it * y1 +
+          3 * it * it * t * y1 +
+          3 * it * t * t * y2 +
+          t * t * t * y2;
+        const d = Math.sqrt((mx - bx) * (mx - bx) + (my - by) * (my - by));
+        if (d < threshold) return idx;
+      }
+    }
+    return null;
+  }
+
+  // ─── Mouse Handlers ─────────────────────────────────────
+
+  private onMouseDown = (e: Event): void => {
+    const me = e as MouseEvent;
+    this.didDrag = false;
+    const rect = this.canvas.getBoundingClientRect();
+    const mx = me.clientX - rect.left;
+    const my = me.clientY - rect.top;
+
+    // Check for pin hit first (wire-draw mode)
+    const pinHit = this.getPinAt(mx, my);
+    if (pinHit) {
+      this.wireDrawing = true;
+      this.wireDrawSource = pinHit.node;
+      this.wireDrawEndX = mx;
+      this.wireDrawEndY = my;
+      this.canvas.style.cursor = 'crosshair';
+      return;
+    }
+
+    const n = this.getNodeAt(mx, my);
+    if (n) {
+      const vt = this.data.getViewTransform();
+      this.dragging = n;
+      this.dragOff.x = (mx - vt.panX) / vt.zoom - n.x;
+      this.dragOff.y = (my - vt.panY) / vt.zoom - n.y;
+    } else {
+      const vt = this.data.getViewTransform();
+      this.isPanning = true;
+      this.panStart.x = mx - vt.panX;
+      this.panStart.y = my - vt.panY;
+    }
+  };
+
+  private onMouseMove = (e: Event): void => {
+    const me = e as MouseEvent;
+    const rect = this.canvas.getBoundingClientRect();
+    const mx = me.clientX - rect.left;
+    const my = me.clientY - rect.top;
+    this.mouseX = mx;
+    this.mouseY = my;
+
+    if (this.wireDrawing) {
+      this.wireDrawEndX = mx;
+      this.wireDrawEndY = my;
+      // Highlight target node
+      const target = this.getNodeAt(mx, my);
+      if (target && target !== this.wireDrawSource) {
+        this.canvas.style.cursor = 'copy';
+      } else {
+        this.canvas.style.cursor = 'crosshair';
+      }
+      this.callbacks.requestRedraw();
+      return;
+    }
+
+    if (this.dragging) {
+      this.didDrag = true;
+      const vt = this.data.getViewTransform();
+      this.dragging.x = (mx - vt.panX) / vt.zoom - this.dragOff.x;
+      this.dragging.y = (my - vt.panY) / vt.zoom - this.dragOff.y;
+      this.callbacks.requestRedraw();
+    } else if (this.isPanning) {
+      this.didDrag = true;
+      const vt = this.data.getViewTransform();
+      const newPanX = mx - this.panStart.x;
+      const newPanY = my - this.panStart.y;
+      this.data.setViewTransform({ panX: newPanX, panY: newPanY, zoom: vt.zoom });
+      this.callbacks.onPanZoomChange(newPanX, newPanY, vt.zoom);
+      this.callbacks.requestRedraw();
+    } else {
+      // Hover detection
+      const n = this.getNodeAt(mx, my);
+      if (n) {
+        this.canvas.style.cursor = 'pointer';
+        this.callbacks.onNodeHover(n.id);
+        this.callbacks.onWireHover(null);
+      } else {
+        const wi = this.getWireAt(mx, my);
+        this.callbacks.onWireHover(wi);
+        this.callbacks.onNodeHover(null);
+        this.canvas.style.cursor = wi !== null ? 'crosshair' : 'default';
+      }
+      this.callbacks.requestRedraw();
+    }
+  };
+
+  private onMouseUp = (e: Event): void => {
+    const me = e as MouseEvent;
+
+    // Wire-draw completion
+    if (this.wireDrawing && this.wireDrawSource) {
+      const rect = this.canvas.getBoundingClientRect();
+      const mx = me.clientX - rect.left;
+      const my = me.clientY - rect.top;
+      const target = this.getNodeAt(mx, my);
+      if (target && target !== this.wireDrawSource) {
+        this.callbacks.onWireDraw(this.wireDrawSource.id, target.id);
+      }
+      this.wireDrawing = false;
+      this.wireDrawSource = null;
+      this.canvas.style.cursor = 'default';
+      this.callbacks.requestRedraw();
+      return;
+    }
+
+    if (!this.didDrag) {
+      const rect = this.canvas.getBoundingClientRect();
+      const mx = me.clientX - rect.left;
+      const my = me.clientY - rect.top;
+      const n = this.getNodeAt(mx, my);
+      if (n) {
+        this.callbacks.onNodeClick(n.id, me.shiftKey, me.ctrlKey || me.metaKey);
+      } else {
+        this.callbacks.onBackgroundClick();
+      }
+    } else if (this.dragging) {
+      // Node was dragged — fire drag-end for position persistence
+      this.callbacks.onNodeDragEnd(this.dragging.id, this.dragging.x, this.dragging.y);
+    }
+    this.dragging = null;
+    this.isPanning = false;
+  };
+
+  private onContextMenu = (e: Event): void => {
+    const me = e as MouseEvent;
+    me.preventDefault();
+    const rect = this.canvas.getBoundingClientRect();
+    const mx = me.clientX - rect.left;
+    const my = me.clientY - rect.top;
+    const n = this.getNodeAt(mx, my);
+    this.callbacks.onContextMenu(n ? n.id : null, me.clientX, me.clientY);
+  };
+
+  private onWheel = (e: Event): void => {
+    const we = e as WheelEvent;
+    we.preventDefault();
+
+    const rect = this.canvas.getBoundingClientRect();
+    const mx = we.clientX - rect.left;
+    const my = we.clientY - rect.top;
+
+    const vt = this.data.getViewTransform();
+    const wx = (mx - vt.panX) / vt.zoom;
+    const wy = (my - vt.panY) / vt.zoom;
+
+    let newZoom = vt.zoom * (we.deltaY < 0 ? 1.1 : 0.9);
+    newZoom = Math.max(0.15, Math.min(2.5, newZoom));
+
+    const newPanX = mx - wx * newZoom;
+    const newPanY = my - wy * newZoom;
+
+    this.data.setViewTransform({ panX: newPanX, panY: newPanY, zoom: newZoom });
+    this.callbacks.onPanZoomChange(newPanX, newPanY, newZoom);
+    this.callbacks.requestRedraw();
+  };
+
+  private onKeyDown = (e: Event): void => {
+    const ke = e as KeyboardEvent;
+    if ((ke.ctrlKey || ke.metaKey) && ke.key === 'f') {
+      ke.preventDefault();
+      this.callbacks.onSearchFocus();
+    }
+    if (ke.key === 'Escape') {
+      this.callbacks.onEscape();
+    }
+  };
+
+  // ─── Cleanup ────────────────────────────────────────────
+
+  destroy(): void {
+    for (const { target, event, handler, options } of this.listeners) {
+      target.removeEventListener(event, handler, options);
+    }
+    this.listeners = [];
+    this.canvas.style.cursor = 'default';
+  }
+}
