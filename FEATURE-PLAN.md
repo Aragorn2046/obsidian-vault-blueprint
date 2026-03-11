@@ -309,7 +309,7 @@
 | Phase 5 | ~~2.1 Node Preview + 2.2 Semantic Zoom~~ | ✅ Done |
 | Phase 6 | ~~2.3 Minimap~~ | ✅ Done |
 | Phase 7 | 2.4 Multiple Layouts | Deferred (organic/schematic covers main use) |
-| Phase 8 | 2.5 Dataview Filtering | 1-2 |
+| Phase 8 | ~~2.5 Dataview Filtering~~ | ✅ Done |
 | Phase 9 | Tier 3 features (as desired) | 1 each |
 
 **Total estimated: 10-16 sessions for full feature set.**

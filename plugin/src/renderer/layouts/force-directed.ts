@@ -180,11 +180,70 @@ export class ForceSimulation {
     return this.alpha >= this.alphaMin;
   }
 
-  /** Update data references (after rescan) */
+  /** Update data references (after rescan), preserving existing positions */
   setData(data: BlueprintData, nodeMap: Record<string, NodeDef>): void {
+    // Save existing positions and states
+    const oldPositions = new Map<string, { x: number; y: number }>();
+    const oldStates = new Map<string, NodeState>();
+    for (const n of this.data.nodes) {
+      oldPositions.set(n.id, { x: n.x, y: n.y });
+    }
+    for (const [id, state] of this.states) {
+      oldStates.set(id, { ...state });
+    }
+
     this.data = data;
     this.nodeMap = nodeMap;
-    this.initialize();
+
+    // Rebuild adjacency
+    this.adjacency.clear();
+    for (const n of data.nodes) {
+      this.adjacency.set(n.id, new Set());
+    }
+    for (const w of data.wires) {
+      const ends = getWireNodeIds(w);
+      this.adjacency.get(ends.from)?.add(ends.to);
+      this.adjacency.get(ends.to)?.add(ends.from);
+    }
+
+    // Restore positions for existing nodes, scatter new ones near center
+    let cx = 0, cy = 0, count = 0;
+    for (const n of data.nodes) {
+      const old = oldPositions.get(n.id);
+      if (old) {
+        n.x = old.x;
+        n.y = old.y;
+        cx += n.x; cy += n.y; count++;
+      }
+    }
+    if (count > 0) { cx /= count; cy /= count; }
+
+    // Init states — reuse old states, create new ones for new nodes
+    this.states.clear();
+    let hasNewNodes = false;
+    for (const n of data.nodes) {
+      const old = oldStates.get(n.id);
+      if (old) {
+        this.states.set(n.id, old);
+      } else {
+        // New node — place near centroid with jitter
+        if (n.x === 0 && n.y === 0) {
+          n.x = cx + (Math.random() - 0.5) * 200;
+          n.y = cy + (Math.random() - 0.5) * 200;
+        }
+        this.states.set(n.id, { vx: 0, vy: 0, fx: 0, fy: 0, pinned: false });
+        hasNewNodes = true;
+      }
+    }
+
+    this.updateRadii();
+    this.data.groups = [];
+
+    // Only gently reheat if there are new nodes — otherwise don't disturb
+    if (hasNewNodes) {
+      this.alpha = Math.max(this.alpha, 0.3);
+    }
+    // Don't reset alpha to 1.0 — that's what caused the periodic redistribution
   }
 
   /**

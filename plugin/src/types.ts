@@ -74,6 +74,8 @@ export interface NodeDef {
   y: number;
   path?: string;
   desc?: string;
+  tags?: string[];
+  properties?: Record<string, unknown>;
   pins: {
     in: PinDef[];
     out: PinDef[];

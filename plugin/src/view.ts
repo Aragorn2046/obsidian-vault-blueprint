@@ -585,6 +585,14 @@ export class BlueprintView extends ItemView {
       collapseBtn.addEventListener("click", () => this.toggleAllGroups());
     }
 
+    // Filter toggle
+    const filterCount = this.renderer?.getActiveFilterCount() ?? 0;
+    const filterBtn = this.toolbarEl.createEl("button", {
+      cls: "blueprint-toolbar-btn" + (filterCount > 0 ? " blueprint-toolbar-btn-active" : ""),
+      text: filterCount > 0 ? `Filters (${filterCount})` : "Filters",
+    });
+    filterBtn.addEventListener("click", () => this.renderer?.toggleFilters());
+
     // Minimap toggle
     const minimapBtn = this.toolbarEl.createEl("button", {
       cls: "blueprint-toolbar-btn",

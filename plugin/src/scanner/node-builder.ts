@@ -65,6 +65,8 @@ export function buildNodes(
       y: 0,
       path: file.path,
       desc: buildDescription(file, inclusionReasons.get(file.path)!),
+      tags: file.tags.length > 0 ? [...file.tags] : undefined,
+      properties: file.frontmatter ? { ...file.frontmatter } : undefined,
       pins,
     };
   });

@@ -40,6 +40,7 @@ import { StatsBar } from './stats';
 import { ContextMenu, type ContextMenuCallbacks } from './context-menu';
 import { PreviewTooltip } from './preview-tooltip';
 import { Minimap } from './minimap';
+import { FilterPanel, type FilterState } from './filter-panel';
 import { findPath, type PathResult } from './path-tracer';
 
 // ─── Options ────────────────────────────────────────────────
@@ -113,6 +114,13 @@ export class BlueprintRenderer {
   private simulation: ForceSimulation | null = null;
   private previewTooltip: PreviewTooltip;
   private minimap: Minimap;
+  private filterPanel: FilterPanel;
+  private filterState: FilterState = {
+    activeTags: new Set(),
+    propertyKey: '',
+    propertyValue: '',
+    tagMode: 'any',
+  };
 
   // Collapsed groups
   private collapsedGroups: Set<string> = new Set();
@@ -235,6 +243,16 @@ export class BlueprintRenderer {
       this.theme,
     );
     this.minimap.setData(this.data, this.viewMode, this.organicRadii);
+
+    // 5f. Create filter panel
+    this.filterPanel = new FilterPanel(
+      this.container,
+      {
+        onFilterChange: (state) => this.handleFilterChange(state),
+      },
+      this.theme,
+    );
+    this.filterPanel.setNodes(this.data.nodes);
 
     // 6. Create interaction manager
     this.interaction = new InteractionManager(
@@ -520,6 +538,23 @@ export class BlueprintRenderer {
     this.minimap.toggle();
   }
 
+  // ─── Filters ─────────────────────────────────────────
+
+  private handleFilterChange(state: FilterState): void {
+    this.filterState = state;
+    this.dirty = true;
+  }
+
+  /** Toggle filter panel visibility */
+  toggleFilters(): void {
+    this.filterPanel.toggle();
+  }
+
+  /** Get active filter count for toolbar badge */
+  getActiveFilterCount(): number {
+    return this.filterPanel.getActiveFilterCount();
+  }
+
   // ─── Collapsible Groups ─────────────────────────────
 
   private handleGroupClick(groupLabel: string): void {
@@ -602,7 +637,19 @@ export class BlueprintRenderer {
       hoveredWireIdx: this.hoveredWireIdx,
     };
 
-    const hidden = this.collapsedNodeIds.size > 0 ? this.collapsedNodeIds : undefined;
+    // Build hidden set: collapsed nodes + filtered-out nodes
+    let hidden: Set<string> | undefined;
+    const hasFilters = this.filterPanel.hasActiveFilters();
+    if (this.collapsedNodeIds.size > 0 || hasFilters) {
+      hidden = new Set(this.collapsedNodeIds);
+      if (hasFilters) {
+        for (const n of this.data.nodes) {
+          if (!FilterPanel.passesFilter(n, this.filterState)) {
+            hidden.add(n.id);
+          }
+        }
+      }
+    }
 
     if (this.viewMode === 'organic') {
       renderFrameOrganic(
@@ -716,6 +763,7 @@ export class BlueprintRenderer {
     this.contextMenu.destroy();
     if (this.organicControls) this.organicControls.destroy();
     this.minimap.destroy();
+    this.filterPanel.destroy();
     this.previewTooltip.destroy();
     this.simulation = null;
   }
@@ -746,6 +794,7 @@ export class BlueprintRenderer {
     this.infoPanel.show(null, this.data.categories, { outgoing: [], incoming: [] }, 0);
     this.searchPanel.clear();
     this.minimap.setData(this.data, this.viewMode, this.organicRadii);
+    this.filterPanel.setNodes(this.data.nodes);
     this.previewTooltip.clearCache();
     this.dirty = true;
   }
@@ -858,6 +907,7 @@ export class BlueprintRenderer {
     this.contextMenu.setTheme(this.theme);
     if (this.organicControls) this.organicControls.setTheme(this.theme);
     this.minimap.setTheme(this.theme);
+    this.filterPanel.setTheme(this.theme);
     this.previewTooltip.setTheme(this.theme);
     this.dirty = true;
   }
@@ -874,12 +924,15 @@ export class BlueprintRenderer {
 
     for (const n of this.data.nodes) {
       if (!isNodeVisible(n, this.data.categories)) continue;
+      if (!FilterPanel.passesFilter(n, this.filterState)) continue;
       if (n.title.toLowerCase().includes(q)) {
         results.push({ node: n, matchField: 'title', score: 0 });
-      } else if (n.desc?.toLowerCase().includes(q)) {
+      } else if (n.tags?.some(t => t.toLowerCase().includes(q))) {
         results.push({ node: n, matchField: 'desc', score: 1 });
+      } else if (n.desc?.toLowerCase().includes(q)) {
+        results.push({ node: n, matchField: 'desc', score: 2 });
       } else if (n.path?.toLowerCase().includes(q)) {
-        results.push({ node: n, matchField: 'path', score: 2 });
+        results.push({ node: n, matchField: 'path', score: 3 });
       }
     }
 
