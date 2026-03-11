@@ -38,6 +38,8 @@ export interface InteractionDataAccessors {
   getWires: () => WireDef[];
   getNodeMap: () => Record<string, NodeDef>;
   getCategories: () => Record<string, CategoryDef>;
+  getViewMode?: () => 'schematic' | 'organic';
+  getOrganicRadii?: () => Map<string, number>;
 }
 
 // ─── Listener record for cleanup ────────────────────────────
@@ -118,19 +120,33 @@ export class InteractionManager {
     const categories = this.data.getCategories();
     const world = toWorld(mx, my, vt);
     const nodes = this.data.getNodes();
+    const isOrganic = this.data.getViewMode?.() === 'organic';
+    const radii = isOrganic ? this.data.getOrganicRadii?.() : null;
 
     for (let i = nodes.length - 1; i >= 0; i--) {
       const n = nodes[i];
       if (!isNodeVisible(n, categories)) continue;
-      const nw = (n as any).w ?? NODE_W;
-      const nh = (n as any).h ?? 60;
-      if (
-        world.x >= n.x &&
-        world.x <= n.x + nw &&
-        world.y >= n.y &&
-        world.y <= n.y + nh
-      ) {
-        return n;
+
+      if (isOrganic && radii) {
+        // Circular hit-test: node center is (n.x, n.y)
+        const r = radii.get(n.id) ?? 35;
+        const dx = world.x - n.x;
+        const dy = world.y - n.y;
+        if (dx * dx + dy * dy <= r * r) {
+          return n;
+        }
+      } else {
+        // Rectangular hit-test
+        const nw = (n as any).w ?? NODE_W;
+        const nh = (n as any).h ?? 60;
+        if (
+          world.x >= n.x &&
+          world.x <= n.x + nw &&
+          world.y >= n.y &&
+          world.y <= n.y + nh
+        ) {
+          return n;
+        }
       }
     }
     return null;
@@ -240,6 +256,7 @@ export class InteractionManager {
     if (n) {
       const vt = this.data.getViewTransform();
       this.dragging = n;
+      // In organic mode, x/y is center; in schematic, x/y is top-left
       this.dragOff.x = (mx - vt.panX) / vt.zoom - n.x;
       this.dragOff.y = (my - vt.panY) / vt.zoom - n.y;
     } else {

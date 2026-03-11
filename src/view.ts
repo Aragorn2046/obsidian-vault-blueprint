@@ -72,6 +72,8 @@ export class BlueprintView extends ItemView {
         container: this.wrapper,
         data,
         theme: this.detectTheme(),
+        viewMode: this.plugin.settings.viewMode,
+        organicSizing: this.plugin.settings.organicSizing,
         onNodeClick: (_nodeId: string, filePath?: string) =>
           this.navigateToFile(filePath),
         onNodeDragEnd: (nodeId: string, x: number, y: number) =>
@@ -139,6 +141,20 @@ export class BlueprintView extends ItemView {
   }
 
   onSettingsChanged(): void {
+    // Check if view mode changed — if so, switch directly
+    if (this.renderer) {
+      const currentMode = this.renderer.getViewMode();
+      if (currentMode !== this.plugin.settings.viewMode) {
+        this.renderer.setViewMode(
+          this.plugin.settings.viewMode,
+          this.plugin.settings.organicSizing,
+        );
+        if (this.currentData && this.toolbarEl) {
+          this.buildToolbar(this.currentData);
+        }
+        return;
+      }
+    }
     this.scheduleRescan();
   }
 
@@ -199,6 +215,30 @@ export class BlueprintView extends ItemView {
     // A full rescan would re-layout. For now just notify.
     // The node will get auto-positioned on next rescan.
     this.forceRescan();
+  }
+
+  // ─── View Mode Toggle ─────────────────────────────────────
+
+  private async toggleViewMode(): Promise<void> {
+    const newMode = this.plugin.settings.viewMode === 'schematic' ? 'organic' : 'schematic';
+    this.plugin.settings.viewMode = newMode;
+    await this.plugin.saveSettings();
+
+    if (this.renderer) {
+      // Clear saved positions when switching modes (layouts are incompatible)
+      this.savedPositions = {};
+      const cache = new BlueprintCache(this.plugin);
+      await cache.clearAllPositions();
+
+      this.renderer.setViewMode(newMode, this.plugin.settings.organicSizing);
+    }
+
+    // Rebuild toolbar to update button label
+    if (this.currentData && this.toolbarEl) {
+      this.buildToolbar(this.currentData);
+    }
+
+    new Notice(`Switched to ${newMode} view`);
   }
 
   // ─── Link Creation (Wire-Drag) ──────────────────────────────
@@ -445,6 +485,14 @@ export class BlueprintView extends ItemView {
       text: "Zoom to Fit",
     });
     zoomBtn.addEventListener("click", () => this.renderer?.zoomToFit());
+
+    // View Mode toggle
+    const currentMode = this.plugin.settings.viewMode;
+    const modeBtn = this.toolbarEl.createEl("button", {
+      cls: "blueprint-toolbar-btn" + (currentMode === 'organic' ? " blueprint-toolbar-btn-active" : ""),
+      text: currentMode === 'organic' ? "Organic" : "Schematic",
+    });
+    modeBtn.addEventListener("click", () => this.toggleViewMode());
 
     // Reset Layout button
     const resetBtn = this.toolbarEl.createEl("button", {

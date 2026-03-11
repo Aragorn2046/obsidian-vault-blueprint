@@ -13,6 +13,44 @@ export class VaultBlueprintSettingTab extends PluginSettingTab {
     const { containerEl } = this;
     containerEl.empty();
 
+    containerEl.createEl("h3", { text: "View" });
+
+    new Setting(containerEl)
+      .setName("View mode")
+      .setDesc(
+        "Schematic: rectangular nodes with pins and wires. " +
+        "Organic: circular nodes sized by connections with force-directed layout."
+      )
+      .addDropdown((drop) =>
+        drop
+          .addOption("schematic", "Schematic")
+          .addOption("organic", "Organic")
+          .setValue(this.plugin.settings.viewMode)
+          .onChange(async (value) => {
+            this.plugin.settings.viewMode = value as 'schematic' | 'organic';
+            await this.plugin.saveSettings();
+            this.plugin.settingsChanged();
+          })
+      );
+
+    new Setting(containerEl)
+      .setName("Organic sizing")
+      .setDesc(
+        "When enabled, organic nodes scale in size based on their " +
+        "connection count. When disabled, all organic nodes are the same size."
+      )
+      .addToggle((toggle) =>
+        toggle
+          .setValue(this.plugin.settings.organicSizing)
+          .onChange(async (value) => {
+            this.plugin.settings.organicSizing = value;
+            await this.plugin.saveSettings();
+            this.plugin.settingsChanged();
+          })
+      );
+
+    containerEl.createEl("h3", { text: "Scanning" });
+
     new Setting(containerEl)
       .setName("Excluded paths")
       .setDesc(

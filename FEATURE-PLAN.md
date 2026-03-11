@@ -1,6 +1,6 @@
 # Vault Blueprint Plugin — Feature Plan
 
-## Current State (v0.1)
+## Current State (v0.2)
 - Canvas renderer with nodes, pins, wires, groups
 - Vault scanner: wikilinks + semantic path references
 - Click to highlight, Ctrl+click to open, Shift+click for path trace
@@ -9,6 +9,9 @@
 - Dark/light theme, zoom/pan, node drag
 - Cache with settings-hash invalidation
 - Auto-rescan on vault changes (debounced)
+- **Persistent pinned layout** — node positions save on drag, survive rescans
+- **Right-click context menu** — Open, Open New Pane, Reveal, Copy Link, Backlinks, Reset Position, Delete
+- **Wire-drag link creation** — drag from output pin to node to create [[wikilink]]
 
 ---
 
@@ -298,8 +301,8 @@
 
 | Phase | Features | Est. Sessions |
 |-------|----------|---------------|
-| Phase 1 | 1.2 Persistent Layout + 1.5 Context Menu | 1-2 |
-| Phase 2 | 1.1 Wire-Drag Link Creation | 1-2 |
+| Phase 1 | ~~1.2 Persistent Layout + 1.5 Context Menu~~ | ✅ Done |
+| Phase 2 | ~~1.1 Wire-Drag Link Creation~~ | ✅ Done |
 | Phase 3 | 1.3 Typed/Colored Wires | 1-2 |
 | Phase 4 | 1.4 Collapsible Groups | 1-2 |
 | Phase 5 | 2.1 Node Preview + 2.2 Semantic Zoom | 1 |

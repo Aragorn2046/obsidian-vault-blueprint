@@ -588,6 +588,262 @@ export function drawNode(
   ctx.globalAlpha = 1;
 }
 
+// ─── Organic (Circular) Node Drawing ────────────────────────
+
+/** Draw a single organic (circular) node */
+export function drawOrganicNode(
+  ctx: CanvasRenderingContext2D,
+  node: NodeDef,
+  radius: number,
+  categories: Record<string, CategoryDef>,
+  vt: ViewTransform,
+  theme: ThemeColors,
+  state: NodeDrawState,
+): void {
+  if (!isNodeVisible(node, categories)) return;
+
+  const cat = categories[node.cat];
+  if (!cat) return;
+
+  const cx = node.x * vt.zoom + vt.panX;
+  const cy = node.y * vt.zoom + vt.panY;
+  const r = radius * vt.zoom;
+
+  ctx.globalAlpha = state.isActive ? 1.0 : 0.15;
+
+  // 1. Drop shadow
+  ctx.beginPath();
+  ctx.arc(cx + 2, cy + 2, r, 0, Math.PI * 2);
+  ctx.fillStyle = theme.nodeShadow;
+  ctx.fill();
+
+  // 2. Outer glow / gradient fill
+  const grad = ctx.createRadialGradient(cx, cy, r * 0.3, cx, cy, r);
+  grad.addColorStop(0, cat.dark);
+  grad.addColorStop(0.7, cat.color + 'cc');
+  grad.addColorStop(1, cat.color + '40');
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.fillStyle = grad;
+  ctx.fill();
+
+  // 3. Border
+  ctx.strokeStyle = cat.color;
+  ctx.lineWidth = state.isSelected ? 3 : 1.5;
+  ctx.stroke();
+
+  // 4. Inner highlight (top-left light source)
+  const highlight = ctx.createRadialGradient(cx - r * 0.3, cy - r * 0.3, r * 0.1, cx, cy, r);
+  highlight.addColorStop(0, 'rgba(255,255,255,0.25)');
+  highlight.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.fillStyle = highlight;
+  ctx.fill();
+
+  // 5. Title text (centered, clipped to circle)
+  const maxTextW = r * 1.4;
+  const titleFs = Math.max(7, Math.min(14, Math.min(11 * vt.zoom, r * vt.zoom * 0.35)));
+  ctx.font = `bold ${titleFs}px system-ui`;
+  ctx.fillStyle = '#ffffff';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+
+  // Word wrap within circle width
+  const lines = wrapText(ctx, node.title, maxTextW);
+  const lineH = titleFs * 1.3;
+  const startY = cy - ((lines.length - 1) * lineH) / 2;
+  for (let i = 0; i < Math.min(lines.length, 3); i++) {
+    let line = lines[i];
+    if (i === 2 && lines.length > 3) line = line.slice(0, -3) + '...';
+    ctx.fillText(line, cx, startY + i * lineH);
+  }
+  ctx.textBaseline = 'alphabetic'; // reset
+
+  // 6. Connection count badge (bottom right)
+  const connCount = countConnections(node.id, []);  // passed separately
+  // Skip badge — organic mode shows size as the indicator
+
+  // 7. Selection highlight
+  if (state.isSelected) {
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 2;
+    ctx.globalAlpha = 0.8;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r + 4, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+
+  // 8. Path target highlight
+  if (state.isPathTarget) {
+    ctx.strokeStyle = theme.pathColor;
+    ctx.lineWidth = 2;
+    ctx.globalAlpha = 0.8;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r + 4, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+
+  // 9. Search highlight
+  if (state.isSearchMatch) {
+    ctx.strokeStyle = theme.searchHighlight;
+    ctx.lineWidth = 2;
+    ctx.globalAlpha = 0.6;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r + 6, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+
+  ctx.globalAlpha = 1;
+}
+
+/** Draw a wire in organic mode (straight line between circle edges) */
+export function drawOrganicWire(
+  ctx: CanvasRenderingContext2D,
+  wire: WireDef,
+  nodeMap: Record<string, NodeDef>,
+  radii: Map<string, number>,
+  categories: Record<string, CategoryDef>,
+  vt: ViewTransform,
+  theme: ThemeColors,
+  state: WireDrawState,
+): void {
+  const ends = getWireNodeIds(wire);
+  const fromNode = nodeMap[ends.from];
+  const toNode = nodeMap[ends.to];
+  if (!fromNode || !toNode) return;
+  if (!isNodeVisible(fromNode, categories) || !isNodeVisible(toNode, categories)) return;
+
+  const x1 = fromNode.x * vt.zoom + vt.panX;
+  const y1 = fromNode.y * vt.zoom + vt.panY;
+  const x2 = toNode.x * vt.zoom + vt.panX;
+  const y2 = toNode.y * vt.zoom + vt.panY;
+
+  // Shorten wire to stop at circle edges
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+  const dist = Math.sqrt(dx * dx + dy * dy);
+  if (dist < 1) return;
+
+  const r1 = (radii.get(ends.from) ?? 35) * vt.zoom;
+  const r2 = (radii.get(ends.to) ?? 35) * vt.zoom;
+
+  const startX = x1 + (dx / dist) * r1;
+  const startY = y1 + (dy / dist) * r1;
+  const endX = x2 - (dx / dist) * r2;
+  const endY = y2 - (dy / dist) * r2;
+
+  // Slight curve for organic feel
+  const midX = (startX + endX) / 2;
+  const midY = (startY + endY) / 2;
+  const perpX = -(endY - startY) * 0.05;
+  const perpY = (endX - startX) * 0.05;
+
+  ctx.beginPath();
+  ctx.moveTo(startX, startY);
+  ctx.quadraticCurveTo(midX + perpX, midY + perpY, endX, endY);
+
+  ctx.strokeStyle = wire.color || theme.wireDefault;
+
+  if (state.isHovered) {
+    ctx.globalAlpha = 1;
+    ctx.lineWidth = Math.max(2, 3 * vt.zoom);
+  } else if (state.hasSelection) {
+    ctx.lineWidth = state.isActive
+      ? Math.max(1.2, 2 * vt.zoom)
+      : Math.max(0.8, 1.5 * vt.zoom);
+    ctx.globalAlpha = state.isActive ? theme.wireActiveAlpha : theme.wireInactiveAlpha;
+  } else {
+    ctx.lineWidth = Math.max(0.8, 1.5 * vt.zoom);
+    ctx.globalAlpha = theme.wireNormalAlpha * 0.7;
+  }
+
+  ctx.stroke();
+  ctx.globalAlpha = 1;
+}
+
+/** Render a complete organic frame */
+export function renderFrameOrganic(
+  ctx: CanvasRenderingContext2D,
+  data: { groups: GroupDef[]; nodes: NodeDef[]; wires: WireDef[]; categories: Record<string, CategoryDef> },
+  nodeMap: Record<string, NodeDef>,
+  radii: Map<string, number>,
+  vt: ViewTransform,
+  canvasW: number,
+  canvasH: number,
+  theme: ThemeColors,
+  selection: SelectionState,
+  pathTargetId: string | null,
+): void {
+  ctx.clearRect(0, 0, canvasW, canvasH);
+
+  // Background
+  ctx.fillStyle = theme.background;
+  ctx.fillRect(0, 0, canvasW, canvasH);
+
+  // Subtle dot grid instead of lines for organic mode
+  const gs = 60 * vt.zoom;
+  const ox = vt.panX % gs;
+  const oy = vt.panY % gs;
+  ctx.fillStyle = theme.gridMinor;
+  for (let x = ox; x < canvasW; x += gs) {
+    for (let y = oy; y < canvasH; y += gs) {
+      ctx.beginPath();
+      ctx.arc(x, y, 1, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  // Compute connected IDs for dimming
+  let connectedIds: Record<string, boolean> | null = null;
+  if (selection.selectedNodeId && !selection.pathNodes) {
+    connectedIds = getConnectedNodeIds(selection.selectedNodeId, data.wires);
+  }
+  const hasSelection = !!(selection.selectedNodeId || selection.pathNodes);
+
+  // Wires (drawn first, behind nodes)
+  for (let i = 0; i < data.wires.length; i++) {
+    const wire = data.wires[i];
+    let isActive = true;
+    let isPathWire = false;
+
+    if (selection.pathNodes && selection.pathWires) {
+      isPathWire = selection.pathWires.has(i);
+      isActive = isPathWire;
+    } else if (selection.selectedNodeId) {
+      isActive = isWireConnected(wire, selection.selectedNodeId);
+    }
+
+    drawOrganicWire(ctx, wire, nodeMap, radii, data.categories, vt, theme, {
+      isActive,
+      isPathWire,
+      isHovered: selection.hoveredWireIdx === i,
+      hasSelection,
+    });
+  }
+
+  // Nodes
+  const searchQ = selection.searchQuery?.toLowerCase() || '';
+  for (const node of data.nodes) {
+    let isActive = true;
+    if (selection.pathNodes) {
+      isActive = selection.pathNodes.has(node.id);
+    } else if (selection.selectedNodeId && connectedIds) {
+      isActive = !!connectedIds[node.id];
+    }
+
+    const isSearchMatch = searchQ.length > 0 && node.title.toLowerCase().includes(searchQ);
+    const r = radii.get(node.id) ?? 35;
+
+    drawOrganicNode(ctx, node, r, data.categories, vt, theme, {
+      isActive,
+      isSelected: selection.selectedNodeId === node.id,
+      isPathTarget: pathTargetId === node.id,
+      isSearchMatch,
+    });
+  }
+}
+
 // ─── Full Frame Render ──────────────────────────────────────
 
 /** Render a complete frame — grid, groups, wires, nodes */

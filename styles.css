@@ -31,6 +31,12 @@
   color: var(--text-normal);
 }
 
+.blueprint-toolbar-btn-active {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  border-color: var(--interactive-accent);
+}
+
 .blueprint-toolbar-stats {
   font-size: 11px;
   color: var(--text-muted);

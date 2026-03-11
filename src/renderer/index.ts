@@ -15,6 +15,7 @@ import {
   type ViewTransform,
   type SelectionState,
   renderFrameFull,
+  renderFrameOrganic,
   isNodeVisible,
   getWireNodeIds,
   countConnections,
@@ -28,6 +29,8 @@ import {
 } from './canvas';
 import { InteractionManager } from './interaction';
 import { applyLayout } from './layout';
+import { applyForceLayout, organicRadius } from './layouts/force-directed';
+import type { ViewMode } from '../types';
 import { Legend } from './legend';
 import { SearchPanel, type SearchResult } from './search';
 import { InfoPanel } from './info-panel';
@@ -42,11 +45,14 @@ export interface BlueprintRendererOptions {
   container: HTMLDivElement;
   data: BlueprintData;
   theme?: 'dark' | 'light';
+  viewMode?: ViewMode;
+  organicSizing?: boolean;
   onNodeClick?: (nodeId: string, filePath?: string) => void;
   onNodeHover?: (nodeId: string | null) => void;
   onNodeDragEnd?: (nodeId: string, x: number, y: number) => void;
   onContextMenuAction?: (action: string, nodeId: string) => void;
   onLinkCreate?: (sourceNodeId: string, targetNodeId: string) => void;
+  onViewModeChange?: (mode: ViewMode) => void;
 }
 
 // ─── BlueprintRenderer ──────────────────────────────────────
@@ -58,11 +64,15 @@ export class BlueprintRenderer {
   private container: HTMLDivElement;
   private themeMode: 'dark' | 'light';
   private theme: ThemeColors;
+  private viewMode: ViewMode;
+  private organicSizing: boolean;
+  private organicRadii: Map<string, number> = new Map();
   private onNodeClickCb?: (nodeId: string, filePath?: string) => void;
   private onNodeHoverCb?: (nodeId: string | null) => void;
   private onNodeDragEndCb?: (nodeId: string, x: number, y: number) => void;
   private onContextMenuActionCb?: (action: string, nodeId: string) => void;
   private onLinkCreateCb?: (sourceNodeId: string, targetNodeId: string) => void;
+  private onViewModeChangeCb?: (mode: ViewMode) => void;
 
   // Data
   private data: BlueprintData;
@@ -103,11 +113,14 @@ export class BlueprintRenderer {
     this.container = options.container;
     this.themeMode = options.theme ?? 'dark';
     this.theme = getTheme(this.themeMode);
+    this.viewMode = options.viewMode ?? 'schematic';
+    this.organicSizing = options.organicSizing ?? true;
     this.onNodeClickCb = options.onNodeClick;
     this.onNodeHoverCb = options.onNodeHover;
     this.onNodeDragEndCb = options.onNodeDragEnd;
     this.onContextMenuActionCb = options.onContextMenuAction;
     this.onLinkCreateCb = options.onLinkCreate;
+    this.onViewModeChangeCb = options.onViewModeChange;
 
     // Ensure container has relative positioning for absolute children
     if (getComputedStyle(this.container).position === 'static') {
@@ -119,7 +132,7 @@ export class BlueprintRenderer {
     this.initializeData();
 
     // 3. Run layout (skips if nodes have positions)
-    applyLayout(this.data, this.nodeMap);
+    this.runLayout();
 
     // 4. Set up canvas sizing
     this.resizeCanvas();
@@ -182,6 +195,8 @@ export class BlueprintRenderer {
         getWires: () => this.data.wires,
         getNodeMap: () => this.nodeMap,
         getCategories: () => this.data.categories,
+        getViewMode: () => this.viewMode,
+        getOrganicRadii: () => this.organicRadii,
       },
       {
         onNodeClick: (nodeId, shiftKey, ctrlKey) => this.handleNodeClick(nodeId, shiftKey, ctrlKey),
@@ -235,6 +250,27 @@ export class BlueprintRenderer {
       (node as any).w = NODE_W;
       (node as any).h = hh + maxPins * PIN_H + 8;
       this.nodeMap[node.id] = node;
+    }
+  }
+
+  /** Run appropriate layout based on view mode */
+  private runLayout(): void {
+    if (this.viewMode === 'organic') {
+      this.computeOrganicRadii();
+      applyForceLayout(this.data, this.nodeMap, this.organicSizing);
+    } else {
+      applyLayout(this.data, this.nodeMap);
+    }
+  }
+
+  /** Compute organic radii for all nodes */
+  private computeOrganicRadii(): void {
+    this.organicRadii.clear();
+    for (const node of this.data.nodes) {
+      this.organicRadii.set(
+        node.id,
+        organicRadius(node.id, this.data.wires, this.organicSizing),
+      );
     }
   }
 
@@ -411,17 +447,32 @@ export class BlueprintRenderer {
       hoveredWireIdx: this.hoveredWireIdx,
     };
 
-    renderFrameFull(
-      this.ctx,
-      this.data,
-      this.nodeMap,
-      vt,
-      this.canvasW,
-      this.canvasH,
-      this.theme,
-      selection,
-      this.pathTargetId,
-    );
+    if (this.viewMode === 'organic') {
+      renderFrameOrganic(
+        this.ctx,
+        this.data,
+        this.nodeMap,
+        this.organicRadii,
+        vt,
+        this.canvasW,
+        this.canvasH,
+        this.theme,
+        selection,
+        this.pathTargetId,
+      );
+    } else {
+      renderFrameFull(
+        this.ctx,
+        this.data,
+        this.nodeMap,
+        vt,
+        this.canvasW,
+        this.canvasH,
+        this.theme,
+        selection,
+        this.pathTargetId,
+      );
+    }
 
     // Draw temporary wire during wire-draw mode
     const wd = this.interaction.getWireDrawState();
@@ -497,7 +548,7 @@ export class BlueprintRenderer {
   setData(data: BlueprintData): void {
     this.data = data;
     this.initializeData();
-    applyLayout(this.data, this.nodeMap);
+    this.runLayout();
 
     this.selectedNodeId = null;
     this.pathTargetId = null;
@@ -525,12 +576,20 @@ export class BlueprintRenderer {
 
     for (const n of this.data.nodes) {
       if (!isNodeVisible(n, this.data.categories)) continue;
-      const nw = (n as any).w ?? NODE_W;
-      const nh = (n as any).h ?? 60;
-      minX = Math.min(minX, n.x);
-      minY = Math.min(minY, n.y);
-      maxX = Math.max(maxX, n.x + nw);
-      maxY = Math.max(maxY, n.y + nh);
+      if (this.viewMode === 'organic') {
+        const r = this.organicRadii.get(n.id) ?? 35;
+        minX = Math.min(minX, n.x - r);
+        minY = Math.min(minY, n.y - r);
+        maxX = Math.max(maxX, n.x + r);
+        maxY = Math.max(maxY, n.y + r);
+      } else {
+        const nw = (n as any).w ?? NODE_W;
+        const nh = (n as any).h ?? 60;
+        minX = Math.min(minX, n.x);
+        minY = Math.min(minY, n.y);
+        maxX = Math.max(maxX, n.x + nw);
+        maxY = Math.max(maxY, n.y + nh);
+      }
     }
     if (minX === Infinity) return;
 
@@ -542,14 +601,44 @@ export class BlueprintRenderer {
     this.dirty = true;
   }
 
+  /** Switch between schematic and organic view modes */
+  setViewMode(mode: ViewMode, sizing?: boolean): void {
+    if (mode === this.viewMode && (sizing === undefined || sizing === this.organicSizing)) return;
+    this.viewMode = mode;
+    if (sizing !== undefined) this.organicSizing = sizing;
+
+    // Reset positions so layout runs fresh
+    for (const n of this.data.nodes) {
+      n.x = 0;
+      n.y = 0;
+    }
+
+    this.runLayout();
+    this.clearSelection();
+    this.zoomToFit();
+    this.dirty = true;
+  }
+
+  /** Get current view mode */
+  getViewMode(): ViewMode {
+    return this.viewMode;
+  }
+
   /** Center on a specific node */
   zoomToNode(nodeId: string): void {
     const n = this.nodeMap[nodeId];
     if (!n) return;
-    const nw = (n as any).w ?? NODE_W;
-    const nh = (n as any).h ?? 60;
-    const cx = n.x + nw / 2;
-    const cy = n.y + nh / 2;
+    let cx: number, cy: number;
+    if (this.viewMode === 'organic') {
+      // In organic mode, x/y IS the center
+      cx = n.x;
+      cy = n.y;
+    } else {
+      const nw = (n as any).w ?? NODE_W;
+      const nh = (n as any).h ?? 60;
+      cx = n.x + nw / 2;
+      cy = n.y + nh / 2;
+    }
     this.panX = this.canvasW / 2 - cx * this.zoom;
     this.panY = this.canvasH / 2 - cy * this.zoom;
     this.dirty = true;

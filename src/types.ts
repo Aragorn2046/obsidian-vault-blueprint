@@ -4,11 +4,15 @@ export const VIEW_TYPE_BLUEPRINT = "vault-blueprint-view";
 
 // ─── Settings ────────────────────────────────────────────────
 
+export type ViewMode = 'schematic' | 'organic';
+
 export interface VaultBlueprintSettings {
   excludePaths: string[];
   minBacklinks: number;
   showFolderGroups: boolean;
   categoryOverrides: Record<string, string>;
+  viewMode: ViewMode;
+  organicSizing: boolean; // scale node size by connection count
 }
 
 export const DEFAULT_SETTINGS: VaultBlueprintSettings = {
@@ -16,6 +20,8 @@ export const DEFAULT_SETTINGS: VaultBlueprintSettings = {
   minBacklinks: 3,
   showFolderGroups: true,
   categoryOverrides: {},
+  viewMode: 'schematic',
+  organicSizing: true,
 };
 
 // ─── Blueprint Data Model ────────────────────────────────────
