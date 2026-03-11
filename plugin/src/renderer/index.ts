@@ -61,6 +61,7 @@ export interface BlueprintRendererOptions {
   onLinkCreate?: (sourceNodeId: string, targetNodeId: string) => void;
   onViewModeChange?: (mode: ViewMode) => void;
   onForceSettingsChange?: (forces: OrganicForceSettings) => void;
+  onColorChange?: (catKey: string, color: string, dark: string) => void;
 }
 
 // ─── BlueprintRenderer ──────────────────────────────────────
@@ -82,6 +83,7 @@ export class BlueprintRenderer {
   private onLinkCreateCb?: (sourceNodeId: string, targetNodeId: string) => void;
   private onViewModeChangeCb?: (mode: ViewMode) => void;
   private onForceSettingsChangeCb?: (forces: OrganicForceSettings) => void;
+  private onColorChangeCb?: (catKey: string, color: string, dark: string) => void;
   private organicForces: OrganicForceSettings;
 
   // Data
@@ -147,6 +149,7 @@ export class BlueprintRenderer {
     this.onLinkCreateCb = options.onLinkCreate;
     this.onViewModeChangeCb = options.onViewModeChange;
     this.onForceSettingsChangeCb = options.onForceSettingsChange;
+    this.onColorChangeCb = options.onColorChange;
     this.organicForces = options.organicForces ?? {
       centerForce: 0.3, repelForce: 0.5, linkForce: 0.4, linkDistance: 0.5,
       nodeSize: 0.4, linkThickness: 0.3, arrows: true, textFadeThreshold: 0.3,
@@ -171,6 +174,7 @@ export class BlueprintRenderer {
     this.legend = new Legend(this.container, {
       onCategoryToggle: (catKey, visible) => this.setCategoryVisible(catKey, visible),
       onAllCategories: (visible) => this.setAllCategoriesVisible(visible),
+      onColorChange: (catKey, color, dark) => this.handleColorChange(catKey, color, dark),
     }, this.theme);
     this.legend.update(this.data.categories);
 
@@ -227,6 +231,7 @@ export class BlueprintRenderer {
     if (this.viewMode === 'organic') {
       this.organicControls.show();
     }
+    // Defer offset sync until legend + minimap exist (called after construction)
 
     // 5d. Create preview tooltip
     this.previewTooltip = new PreviewTooltip(this.container, this.theme);
@@ -253,6 +258,9 @@ export class BlueprintRenderer {
       this.theme,
     );
     this.filterPanel.setNodes(this.data.nodes);
+
+    // 5g. Sync panel offsets (legend/minimap shift when controls sidebar is open)
+    this.syncPanelOffsets();
 
     // 6. Create interaction manager
     this.interaction = new InteractionManager(
@@ -553,6 +561,22 @@ export class BlueprintRenderer {
   /** Get active filter count for toolbar badge */
   getActiveFilterCount(): number {
     return this.filterPanel.getActiveFilterCount();
+  }
+
+  // ─── Color Change ────────────────────────────────────
+
+  private handleColorChange(catKey: string, color: string, dark: string): void {
+    // Update the category in the data model
+    const cat = this.data.categories[catKey];
+    if (cat) {
+      cat.color = color;
+      cat.dark = dark;
+    }
+    // Notify the view to persist
+    if (this.onColorChangeCb) {
+      this.onColorChangeCb(catKey, color, dark);
+    }
+    this.dirty = true;
   }
 
   // ─── Collapsible Groups ─────────────────────────────
@@ -858,6 +882,7 @@ export class BlueprintRenderer {
         this.organicControls.hide();
       }
     }
+    this.syncPanelOffsets();
 
     this.minimap.setData(this.data, this.viewMode, this.organicRadii);
     this.zoomToFit();
@@ -873,7 +898,23 @@ export class BlueprintRenderer {
   toggleControls(): void {
     if (this.organicControls) {
       this.organicControls.toggle();
+      this.syncPanelOffsets();
     }
+  }
+
+  /** Adjust right-positioned panels when controls sidebar is open */
+  private syncPanelOffsets(): void {
+    const isOpen = !!(this.organicControls && this.organicControls.isVisible());
+    // CSS-driven offset via data attribute (survives re-renders)
+    if (isOpen) {
+      this.container.dataset.controlsOpen = '';
+    } else {
+      delete this.container.dataset.controlsOpen;
+    }
+    // Also set JS offsets as fallback
+    const offset = isOpen ? 240 : 0;
+    this.legend.setRightOffset(offset);
+    this.minimap.setRightOffset(offset);
   }
 
   /** Center on a specific node */

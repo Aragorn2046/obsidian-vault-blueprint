@@ -1,4 +1,4 @@
-// ─── Legend — Category visibility toggles ───────────────────
+// ─── Legend — Category visibility toggles + color picker ─────
 // Zero Obsidian dependencies. DOM-only UI.
 
 import type { CategoryDef } from '../types';
@@ -9,6 +9,7 @@ import type { ThemeColors } from './theme';
 export interface LegendCallbacks {
   onCategoryToggle: (catKey: string, visible: boolean) => void;
   onAllCategories: (visible: boolean) => void;
+  onColorChange?: (catKey: string, color: string, dark: string) => void;
 }
 
 // ─── Legend ──────────────────────────────────────────────────
@@ -48,6 +49,7 @@ export class Legend {
       borderRadius: '6px',
       padding: '10px 14px',
       fontFamily: "'Segoe UI', system-ui, sans-serif",
+      transition: 'right 0.15s ease',
     });
   }
 
@@ -116,16 +118,57 @@ export class Legend {
       this.syncCheck(check, cat.visible !== false);
       row.appendChild(check);
 
-      // Color dot
+      // Color dot (clickable — opens color picker)
       const dot = document.createElement('div');
       dot.className = 'bp-leg-dot';
       Object.assign(dot.style, {
-        width: '8px',
-        height: '8px',
-        borderRadius: '2px',
+        width: '12px',
+        height: '12px',
+        borderRadius: '3px',
         background: cat.color,
         flexShrink: '0',
+        cursor: 'pointer',
+        border: '1px solid rgba(255,255,255,0.2)',
+        position: 'relative',
       });
+      dot.title = 'Click to change color';
+
+      // Hidden color input
+      const colorInput = document.createElement('input');
+      colorInput.type = 'color';
+      colorInput.value = cat.color;
+      Object.assign(colorInput.style, {
+        position: 'absolute',
+        width: '0',
+        height: '0',
+        padding: '0',
+        border: 'none',
+        opacity: '0',
+        pointerEvents: 'none',
+      });
+      dot.appendChild(colorInput);
+
+      dot.addEventListener('click', (e) => {
+        e.stopPropagation(); // Don't trigger row click (visibility toggle)
+        colorInput.click();
+      });
+
+      colorInput.addEventListener('input', (e) => {
+        e.stopPropagation();
+        const newColor = colorInput.value;
+        dot.style.background = newColor;
+        // Generate a darker variant for the "dark" field
+        const dark = this.darkenColor(newColor, 0.3);
+        cat.color = newColor;
+        cat.dark = dark;
+        if (this.callbacks.onColorChange) {
+          this.callbacks.onColorChange(key, newColor, dark);
+        }
+      });
+
+      // Prevent color input clicks from toggling visibility
+      colorInput.addEventListener('click', (e) => e.stopPropagation());
+
       row.appendChild(dot);
 
       // Label
@@ -144,7 +187,7 @@ export class Legend {
         row.style.color = this.theme.panelText;
       });
 
-      // Click handler
+      // Click handler (toggles visibility — NOT on dot)
       row.addEventListener('click', () => {
         const newVisible = !cat.visible;
         cat.visible = newVisible;
@@ -203,7 +246,23 @@ export class Legend {
     row.style.opacity = visible ? '1' : '0.35';
   }
 
+  /** Generate a darker variant of a hex color */
+  private darkenColor(hex: string, amount: number): string {
+    const r = parseInt(hex.slice(1, 3), 16);
+    const g = parseInt(hex.slice(3, 5), 16);
+    const b = parseInt(hex.slice(5, 7), 16);
+    const dr = Math.round(r * (1 - amount));
+    const dg = Math.round(g * (1 - amount));
+    const db = Math.round(b * (1 - amount));
+    return `#${dr.toString(16).padStart(2, '0')}${dg.toString(16).padStart(2, '0')}${db.toString(16).padStart(2, '0')}`;
+  }
+
   // ─── Public API ───────────────────────────────────────
+
+  /** Adjust right offset (e.g. when controls panel is open) */
+  setRightOffset(px: number): void {
+    this.el.style.right = `${12 + px}px`;
+  }
 
   /** Update theme colors */
   setTheme(theme: ThemeColors): void {

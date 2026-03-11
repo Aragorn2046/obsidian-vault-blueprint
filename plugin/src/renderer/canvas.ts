@@ -808,10 +808,13 @@ export function drawOrganicNode(
 
     const lines = wrapText(ctx, node.title, maxTextW);
     const lineH = titleFs * 1.3;
-    const startY = cy - ((lines.length - 1) * lineH) / 2;
-    for (let i = 0; i < Math.min(lines.length, 3); i++) {
+    // Limit lines so text stays inside the circle
+    const maxLines = Math.max(1, Math.floor((r * 1.4) / lineH));
+    const visibleLines = Math.min(lines.length, maxLines, 3);
+    const startY = cy - ((visibleLines - 1) * lineH) / 2;
+    for (let i = 0; i < visibleLines; i++) {
       let line = lines[i];
-      if (i === 2 && lines.length > 3) line = line.slice(0, -3) + '...';
+      if (i === visibleLines - 1 && lines.length > visibleLines) line = line.slice(0, -3) + '...';
       ctx.fillText(line, cx, startY + i * lineH);
     }
     ctx.textBaseline = 'alphabetic';

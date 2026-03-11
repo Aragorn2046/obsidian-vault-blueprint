@@ -5,6 +5,7 @@ export interface ScannerOptions {
   excludePaths: string[];
   minBacklinks: number;
   categoryOverrides: Record<string, string>;
+  categoryColors: Record<string, { color: string; dark: string }>;
   showFolderGroups: boolean;
 }
 
@@ -54,7 +55,7 @@ export const DEFAULT_CATEGORIES: CategoryRule[] = [
   { id: "kb", label: "Knowledge Base", color: "#a78bfa", dark: "#7c3aed", folderPatterns: ["knowledge base", "kb", "knowledge-base", "claude knowledge base"], filePatterns: [], tags: [] },
   { id: "vault", label: "Vault Structure", color: "#34d399", dark: "#059669", folderPatterns: [], filePatterns: ["*MOC*", "*TODO*", "*Inbox*", "*Cortex*"], tags: [] },
   { id: "content", label: "Content", color: "#f59e0b", dark: "#d97706", folderPatterns: ["articles", "content", "drafts", "posts"], filePatterns: [], tags: [] },
-  { id: "concept", label: "Concepts", color: "#fbbf24", dark: "#f59e0b", folderPatterns: ["concepts"], filePatterns: [], tags: ["#concept"] },
+  { id: "concept", label: "Concepts", color: "#2dd4bf", dark: "#0d9488", folderPatterns: ["concepts"], filePatterns: [], tags: ["#concept"] },
   { id: "auto", label: "Automation", color: "#fb923c", dark: "#ea580c", folderPatterns: [], filePatterns: ["*.sh", "*.py"], tags: [] },
   { id: "rules", label: "Rules", color: "#f43f5e", dark: "#e11d48", folderPatterns: ["rules"], filePatterns: [], tags: [] },
   { id: "people", label: "People", color: "#ec4899", dark: "#db2777", folderPatterns: ["people"], filePatterns: [], tags: ["#person", "#thinker"] },

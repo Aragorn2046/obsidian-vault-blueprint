@@ -9,7 +9,8 @@ export interface CategorizationResult {
 export function categorizeNodes(
   nodes: NodeDef[],
   files: FileInfo[],
-  options: ScannerOptions
+  options: ScannerOptions,
+  colorOverrides?: Record<string, { color: string; dark: string }>,
 ): CategorizationResult {
   const fileMap = new Map(files.map((f) => [f.path, f]));
   const validCategories = new Set(DEFAULT_CATEGORIES.map((c) => c.id));
@@ -30,7 +31,7 @@ export function categorizeNodes(
       "default";
   }
 
-  return { categories: buildCategoryDefs() };
+  return { categories: buildCategoryDefs(colorOverrides) };
 }
 
 function matchOverride(
@@ -111,12 +112,15 @@ function matchFilePattern(
   return null;
 }
 
-function buildCategoryDefs(): Record<string, CategoryDef> {
+function buildCategoryDefs(
+  colorOverrides?: Record<string, { color: string; dark: string }>,
+): Record<string, CategoryDef> {
   const result: Record<string, CategoryDef> = {};
   for (const cat of DEFAULT_CATEGORIES) {
+    const custom = colorOverrides?.[cat.id];
     result[cat.id] = {
-      color: cat.color,
-      dark: cat.dark,
+      color: custom?.color ?? cat.color,
+      dark: custom?.dark ?? cat.dark,
       label: cat.label,
       visible: true,
     };

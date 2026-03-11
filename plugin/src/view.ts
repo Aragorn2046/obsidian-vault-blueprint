@@ -85,6 +85,8 @@ export class BlueprintView extends ItemView {
           this.handleLinkCreate(sourceNodeId, targetNodeId),
         onForceSettingsChange: (forces) =>
           this.handleForceSettingsChange(forces),
+        onColorChange: (catKey, color, dark) =>
+          this.handleColorChange(catKey, color, dark),
         onNodePreview: (nodeId) => this.fetchNodePreview(nodeId),
       });
       this.renderer.render();
@@ -117,6 +119,11 @@ export class BlueprintView extends ItemView {
     if (this.forceSaveTimer) {
       clearTimeout(this.forceSaveTimer);
       this.forceSaveTimer = null;
+    }
+
+    if (this.colorSaveTimer) {
+      clearTimeout(this.colorSaveTimer);
+      this.colorSaveTimer = null;
     }
 
     if (this.renderer) {
@@ -235,6 +242,22 @@ export class BlueprintView extends ItemView {
     // Debounce save — sliders fire many events
     if (this.forceSaveTimer) clearTimeout(this.forceSaveTimer);
     this.forceSaveTimer = setTimeout(async () => {
+      await this.plugin.saveSettings();
+    }, 300);
+  }
+
+  // ─── Color Persistence ─────────────────────────────────────
+
+  private colorSaveTimer: ReturnType<typeof setTimeout> | null = null;
+
+  private handleColorChange(catKey: string, color: string, dark: string): void {
+    if (!this.plugin.settings.categoryColors) {
+      this.plugin.settings.categoryColors = {};
+    }
+    this.plugin.settings.categoryColors[catKey] = { color, dark };
+    // Debounce save — color picker fires many events while dragging
+    if (this.colorSaveTimer) clearTimeout(this.colorSaveTimer);
+    this.colorSaveTimer = setTimeout(async () => {
       await this.plugin.saveSettings();
     }, 300);
   }
@@ -455,6 +478,7 @@ export class BlueprintView extends ItemView {
       excludePaths: this.plugin.settings.excludePaths,
       minBacklinks: this.plugin.settings.minBacklinks,
       categoryOverrides: this.plugin.settings.categoryOverrides,
+      categoryColors: this.plugin.settings.categoryColors ?? {},
       showFolderGroups: this.plugin.settings.showFolderGroups,
     });
   }

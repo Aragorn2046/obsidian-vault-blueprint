@@ -20,6 +20,7 @@ export class VaultScanner {
       excludePaths: options.excludePaths ?? [".obsidian"],
       minBacklinks: options.minBacklinks ?? 3,
       categoryOverrides: options.categoryOverrides ?? {},
+      categoryColors: options.categoryColors ?? {},
       showFolderGroups: options.showFolderGroups ?? true,
     };
   }
@@ -92,7 +93,8 @@ export class VaultScanner {
       const catResult = categorizeNodes(
         nodeResult.nodes,
         collected.files,
-        this.options
+        this.options,
+        this.options.categoryColors,
       );
 
       // Stage 5: Build groups (folder structure → group boxes)

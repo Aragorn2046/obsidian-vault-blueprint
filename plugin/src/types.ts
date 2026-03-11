@@ -33,6 +33,7 @@ export interface VaultBlueprintSettings {
   minBacklinks: number;
   showFolderGroups: boolean;
   categoryOverrides: Record<string, string>;
+  categoryColors: Record<string, { color: string; dark: string }>;
   viewMode: ViewMode;
   organicSizing: boolean; // scale node size by connection count
   organicForces: OrganicForceSettings;
@@ -43,6 +44,7 @@ export const DEFAULT_SETTINGS: VaultBlueprintSettings = {
   minBacklinks: 3,
   showFolderGroups: true,
   categoryOverrides: {},
+  categoryColors: {},
   viewMode: 'schematic',
   organicSizing: true,
   organicForces: { ...DEFAULT_ORGANIC_FORCES },

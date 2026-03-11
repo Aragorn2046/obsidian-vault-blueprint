@@ -163,6 +163,11 @@ export class Minimap {
     else this.show();
   }
 
+  /** Adjust right offset (e.g. when controls panel is open) */
+  setRightOffset(px: number): void {
+    this.wrapper.style.right = `${10 + px}px`;
+  }
+
   setTheme(theme: ThemeColors): void {
     this.theme = theme;
   }
