@@ -36,8 +36,13 @@ function readableColor(hex: string): string {
 export class InfoPanel {
   private container: HTMLDivElement;
   private el: HTMLDivElement;
+  private resizeHandle: HTMLDivElement;
   private callbacks: InfoPanelCallbacks;
   private theme: ThemeColors;
+  private panelHeight = 400;
+  private resizing = false;
+  private resizeStartY = 0;
+  private resizeStartH = 0;
 
   constructor(
     container: HTMLDivElement,
@@ -52,8 +57,58 @@ export class InfoPanel {
     this.el.className = 'bp-info-panel';
     this.applyStyles();
     this.el.style.display = 'none';
+
+    // Resize handle (top edge)
+    this.resizeHandle = document.createElement('div');
+    Object.assign(this.resizeHandle.style, {
+      position: 'absolute',
+      top: '0',
+      left: '0',
+      right: '0',
+      height: '6px',
+      cursor: 'ns-resize',
+      borderRadius: '6px 6px 0 0',
+    });
+    // Visual indicator line
+    const grip = document.createElement('div');
+    Object.assign(grip.style, {
+      width: '32px',
+      height: '3px',
+      borderRadius: '2px',
+      background: this.theme.textMuted,
+      opacity: '0.3',
+      margin: '2px auto 0',
+    });
+    this.resizeHandle.appendChild(grip);
+    this.el.appendChild(this.resizeHandle);
+
+    this.resizeHandle.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      this.resizing = true;
+      this.resizeStartY = e.clientY;
+      this.resizeStartH = this.panelHeight;
+      document.addEventListener('mousemove', this.onResizeMove);
+      document.addEventListener('mouseup', this.onResizeEnd);
+    });
+
     this.container.appendChild(this.el);
   }
+
+  private onResizeMove = (e: MouseEvent): void => {
+    if (!this.resizing) return;
+    // Dragging up = larger panel (negative dy = more height)
+    const dy = this.resizeStartY - e.clientY;
+    this.panelHeight = Math.max(150, Math.min(800, this.resizeStartH + dy));
+    this.el.style.height = this.panelHeight + 'px';
+    this.el.style.maxHeight = this.panelHeight + 'px';
+  };
+
+  private onResizeEnd = (): void => {
+    this.resizing = false;
+    document.removeEventListener('mousemove', this.onResizeMove);
+    document.removeEventListener('mouseup', this.onResizeEnd);
+  };
 
   // ─── Styles ───────────────────────────────────────────
 
@@ -66,15 +121,15 @@ export class InfoPanel {
       background: this.theme.panelBg,
       border: `1px solid ${this.theme.panelBorder}`,
       borderRadius: '6px',
-      padding: '12px 16px',
+      padding: '16px 16px 12px',
       maxWidth: '520px',
       minWidth: '320px',
       color: this.theme.panelText,
       fontSize: '11px',
-      maxHeight: '240px',
+      height: this.panelHeight + 'px',
+      maxHeight: this.panelHeight + 'px',
       overflowY: 'auto',
       fontFamily: "'Segoe UI', system-ui, sans-serif",
-      transition: 'right 0.15s ease',
     });
   }
 
@@ -303,6 +358,8 @@ export class InfoPanel {
 
   /** Remove all DOM elements */
   destroy(): void {
+    document.removeEventListener('mousemove', this.onResizeMove);
+    document.removeEventListener('mouseup', this.onResizeEnd);
     if (this.el.parentNode) {
       this.el.parentNode.removeChild(this.el);
     }
