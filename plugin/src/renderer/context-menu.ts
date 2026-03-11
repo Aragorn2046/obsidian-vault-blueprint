@@ -6,6 +6,7 @@ import type { ThemeColors } from './theme';
 export interface ContextMenuCallbacks {
   onOpen: (nodeId: string) => void;
   onOpenNewPane: (nodeId: string) => void;
+  onOpenSplitView: (nodeId: string) => void;
   onRevealInExplorer: (nodeId: string) => void;
   onCopyWikiLink: (nodeId: string) => void;
   onShowBacklinks: (nodeId: string) => void;
@@ -49,6 +50,7 @@ export class ContextMenu {
     const items: { label: string; action: () => void; separator?: boolean; danger?: boolean }[] = [
       { label: 'Open Note', action: () => this.fire('onOpen') },
       { label: 'Open in New Pane', action: () => this.fire('onOpenNewPane') },
+      { label: 'Open in Split View', action: () => this.fire('onOpenSplitView') },
       { label: 'Reveal in Explorer', action: () => this.fire('onRevealInExplorer') },
       { label: 'Copy [[Wiki Link]]', action: () => this.fire('onCopyWikiLink'), separator: true },
       { label: 'Show Backlinks', action: () => this.fire('onShowBacklinks'), separator: true },

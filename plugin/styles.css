@@ -131,6 +131,17 @@
   color: var(--text-normal);
 }
 
+/* When controls sidebar is visible, shift right-positioned panels */
+.blueprint-wrapper[data-controls-open] .bp-legend {
+  right: 252px !important;
+}
+
+.blueprint-wrapper[data-controls-open] .blueprint-minimap {
+  right: 250px !important;
+}
+
+/* Info panel is on the left — no controls offset needed */
+
 .blueprint-organic-section {
   font-size: 13px;
   font-weight: 600;

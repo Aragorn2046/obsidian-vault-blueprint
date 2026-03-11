@@ -42,6 +42,17 @@ import { PreviewTooltip } from './preview-tooltip';
 import { Minimap } from './minimap';
 import { FilterPanel, type FilterState } from './filter-panel';
 import { findPath, type PathResult } from './path-tracer';
+import {
+  detectClusters,
+  findBridgeNodes,
+  findGaps,
+  betweennessCentrality,
+  pageRank,
+  type GapSuggestion,
+  type ImportanceMetric,
+} from './graph-analysis';
+import { exportToPng } from './export';
+import { GapPanel } from './gap-panel';
 
 // ─── Options ────────────────────────────────────────────────
 
@@ -62,6 +73,8 @@ export interface BlueprintRendererOptions {
   onViewModeChange?: (mode: ViewMode) => void;
   onForceSettingsChange?: (forces: OrganicForceSettings) => void;
   onColorChange?: (catKey: string, color: string, dark: string) => void;
+  onLinkCreate2?: (fromId: string, toId: string) => void;
+  onSplitView?: (nodeId: string) => void;
 }
 
 // ─── BlueprintRenderer ──────────────────────────────────────
@@ -128,6 +141,15 @@ export class BlueprintRenderer {
   private collapsedGroups: Set<string> = new Set();
   private collapsedNodeIds: Set<string> = new Set();
 
+  // Tier 3 state
+  private clusterColors: Map<string, string> | null = null;
+  private bridgeNodes: Set<string> | null = null;
+  private clustersActive = false;
+  private importanceMetric: ImportanceMetric | null = null;
+  private importanceScores: Map<string, number> | null = null;
+  private gapPanel: GapPanel;
+  private onSplitViewCb?: (nodeId: string) => void;
+
   // Render loop
   private animFrameId: number | null = null;
   private resizeObserver: ResizeObserver | null = null;
@@ -150,6 +172,7 @@ export class BlueprintRenderer {
     this.onViewModeChangeCb = options.onViewModeChange;
     this.onForceSettingsChangeCb = options.onForceSettingsChange;
     this.onColorChangeCb = options.onColorChange;
+    this.onSplitViewCb = options.onSplitView;
     this.organicForces = options.organicForces ?? {
       centerForce: 0.3, repelForce: 0.5, linkForce: 0.4, linkDistance: 0.5,
       nodeSize: 0.4, linkThickness: 0.3, arrows: true, textFadeThreshold: 0.3,
@@ -207,6 +230,7 @@ export class BlueprintRenderer {
     const ctxCallbacks: ContextMenuCallbacks = {
       onOpen: (id) => this.fireContextAction('open', id),
       onOpenNewPane: (id) => this.fireContextAction('open-new-pane', id),
+      onOpenSplitView: (id) => this.openInSplitView(id),
       onRevealInExplorer: (id) => this.fireContextAction('reveal', id),
       onCopyWikiLink: (id) => this.fireContextAction('copy-link', id),
       onShowBacklinks: (id) => {
@@ -259,7 +283,23 @@ export class BlueprintRenderer {
     );
     this.filterPanel.setNodes(this.data.nodes);
 
-    // 5g. Sync panel offsets (legend/minimap shift when controls sidebar is open)
+    // 5g. Create gap analysis panel
+    this.gapPanel = new GapPanel(
+      this.container,
+      {
+        onNodeClick: (nodeId) => {
+          this.selectNode(nodeId);
+          this.zoomToNode(nodeId);
+        },
+        onCreateLink: (fromId, toId) => {
+          if (options.onLinkCreate2) options.onLinkCreate2(fromId, toId);
+          else if (this.onLinkCreateCb) this.onLinkCreateCb(fromId, toId);
+        },
+      },
+      this.theme,
+    );
+
+    // 5h. Sync panel offsets (legend/minimap shift when controls sidebar is open)
     this.syncPanelOffsets();
 
     // 6. Create interaction manager
@@ -291,6 +331,7 @@ export class BlueprintRenderer {
         onContextMenu: (nodeId, sx, sy) => this.handleContextMenu(nodeId, sx, sy),
         onWireDraw: (fromNodeId, toNodeId) => this.handleWireDraw(fromNodeId, toNodeId),
         onGroupClick: (groupLabel) => this.handleGroupClick(groupLabel),
+        onLassoComplete: (nodeIds) => this.handleLassoComplete(nodeIds),
         requestRedraw: () => { this.dirty = true; },
       },
     );
@@ -676,6 +717,7 @@ export class BlueprintRenderer {
     }
 
     if (this.viewMode === 'organic') {
+      const lassoState = this.interaction.getLassoPoints?.();
       renderFrameOrganic(
         this.ctx,
         this.data,
@@ -689,6 +731,9 @@ export class BlueprintRenderer {
         this.pathTargetId,
         this.organicForces,
         hidden,
+        this.clustersActive ? this.clusterColors ?? undefined : undefined,
+        this.clustersActive ? this.bridgeNodes ?? undefined : undefined,
+        lassoState && lassoState.length > 0 ? lassoState : undefined,
       );
     } else {
       renderFrameFull(
@@ -769,6 +814,205 @@ export class BlueprintRenderer {
     this.dirty = true;
   }
 
+  // ─── Tier 3: Cluster Detection ──────────────────────
+
+  /** Generate cluster colors palette */
+  private static CLUSTER_PALETTE = [
+    '#ff6b6b', '#4ecdc4', '#45b7d1', '#96e6a1', '#dda0dd',
+    '#f7dc6f', '#bb8fce', '#85c1e9', '#f8c471', '#82e0aa',
+    '#f1948a', '#73c6b6', '#a9cce3', '#f9e79f', '#d7bde2',
+    '#abebc6', '#fadbd8', '#d5f5e3', '#fdebd0', '#d6eaf8',
+  ];
+
+  /** Toggle cluster overlay on/off */
+  toggleClusters(): void {
+    this.clustersActive = !this.clustersActive;
+    if (this.clustersActive) {
+      this.computeClusters();
+    } else {
+      this.clusterColors = null;
+      this.bridgeNodes = null;
+    }
+    this.dirty = true;
+  }
+
+  /** Are clusters currently shown? */
+  isClustersActive(): boolean {
+    return this.clustersActive;
+  }
+
+  private computeClusters(): void {
+    const clusters = detectClusters(this.data.nodes, this.data.wires);
+    this.bridgeNodes = findBridgeNodes(this.data.nodes, this.data.wires, clusters);
+
+    // Assign colors to clusters
+    this.clusterColors = new Map();
+    for (const [nodeId, clusterIdx] of clusters) {
+      const color = BlueprintRenderer.CLUSTER_PALETTE[clusterIdx % BlueprintRenderer.CLUSTER_PALETTE.length];
+      this.clusterColors.set(nodeId, color);
+    }
+  }
+
+  // ─── Tier 3: Gap Analysis ─────────────────────────
+
+  /** Run gap analysis and show results */
+  showGapAnalysis(): void {
+    const gaps = findGaps(this.data.nodes, this.data.wires);
+    this.gapPanel.show(gaps, this.nodeMap);
+  }
+
+  /** Toggle gap panel */
+  toggleGapAnalysis(): void {
+    if (this.gapPanel.isVisible()) {
+      this.gapPanel.hide();
+    } else {
+      this.showGapAnalysis();
+    }
+  }
+
+  // ─── Tier 3: Node Sizing by Importance ────────────
+
+  /** Set importance-based sizing metric (null = default sizing) */
+  setImportanceMetric(metric: ImportanceMetric | null): void {
+    this.importanceMetric = metric;
+    if (metric) {
+      this.computeImportanceScores(metric);
+      this.applyImportanceSizing();
+    } else {
+      this.importanceScores = null;
+      // Reset to default sizing
+      if (this.simulation) {
+        this.simulation.updateRadii();
+        this.organicRadii = this.simulation.getRadii();
+      }
+    }
+    this.dirty = true;
+  }
+
+  /** Get current importance metric */
+  getImportanceMetric(): ImportanceMetric | null {
+    return this.importanceMetric;
+  }
+
+  private computeImportanceScores(metric: ImportanceMetric): void {
+    switch (metric) {
+      case 'connections': {
+        const degreeMap = new Map<string, number>();
+        for (const n of this.data.nodes) degreeMap.set(n.id, 0);
+        for (const w of this.data.wires) {
+          const { from, to } = getWireNodeIds(w);
+          if (degreeMap.has(from)) degreeMap.set(from, degreeMap.get(from)! + 1);
+          if (degreeMap.has(to)) degreeMap.set(to, degreeMap.get(to)! + 1);
+        }
+        let max = 0;
+        for (const d of degreeMap.values()) if (d > max) max = d;
+        this.importanceScores = new Map();
+        for (const [id, d] of degreeMap) {
+          this.importanceScores.set(id, max > 0 ? d / max : 0);
+        }
+        break;
+      }
+      case 'betweenness':
+        this.importanceScores = betweennessCentrality(this.data.nodes, this.data.wires);
+        break;
+      case 'pagerank':
+        this.importanceScores = pageRank(this.data.nodes, this.data.wires);
+        break;
+    }
+  }
+
+  private applyImportanceSizing(): void {
+    if (!this.importanceScores) return;
+
+    const minR = 15;
+    const maxR = 80;
+    const sizeScale = 0.5 + (this.organicForces.nodeSize ?? 0.4) * 1.5;
+
+    this.organicRadii = new Map();
+    for (const n of this.data.nodes) {
+      const score = this.importanceScores.get(n.id) ?? 0;
+      const r = (minR + score * (maxR - minR)) * sizeScale;
+      this.organicRadii.set(n.id, Math.max(minR, r));
+    }
+  }
+
+  // ─── Tier 3: PNG Export ───────────────────────────
+
+  /** Export current view as PNG */
+  async exportPng(): Promise<void> {
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    await exportToPng(this.canvas, `vault-blueprint-${timestamp}.png`);
+  }
+
+  // ─── Tier 3: Lasso / Sub-Graph Collapse ───────────
+
+  /** Enter lasso selection mode */
+  startLassoMode(): void {
+    this.interaction.setLassoMode(true);
+  }
+
+  /** Handle lasso completion — collapse selected nodes */
+  private handleLassoComplete(nodeIds: string[]): void {
+    if (nodeIds.length < 2) return;
+
+    // Create a virtual group from lassoed nodes
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const id of nodeIds) {
+      const n = this.nodeMap[id];
+      if (!n) continue;
+      const r = this.organicRadii.get(id) ?? 35;
+      minX = Math.min(minX, n.x - r);
+      minY = Math.min(minY, n.y - r);
+      maxX = Math.max(maxX, n.x + r);
+      maxY = Math.max(maxY, n.y + r);
+    }
+
+    const groupLabel = `Group (${nodeIds.length} nodes)`;
+
+    // Check if a group with these nodes already exists
+    const existing = this.data.groups.find(g => g.label === groupLabel);
+    if (existing) {
+      // Toggle collapse
+      this.handleGroupClick(groupLabel);
+      return;
+    }
+
+    // Create new group
+    const group: GroupDef = {
+      label: groupLabel,
+      color: '#888888',
+      x: minX - 20,
+      y: minY - 20,
+      w: maxX - minX + 40,
+      h: maxY - minY + 40,
+      nodeIds: [...nodeIds],
+      collapsed: true,
+    };
+
+    this.data.groups.push(group);
+    this.collapsedGroups.add(groupLabel);
+    this.rebuildCollapsedNodeIds();
+    this.dirty = true;
+  }
+
+  /** Expand all collapsed lasso groups */
+  expandAllLassoGroups(): void {
+    // Remove groups that were created by lasso (they start with "Group (")
+    this.data.groups = this.data.groups.filter(g => !g.label.startsWith('Group ('));
+    this.collapsedGroups.clear();
+    this.rebuildCollapsedNodeIds();
+    this.dirty = true;
+  }
+
+  // ─── Tier 3: Split View ──────────────────────────
+
+  /** Open a node in split view (delegates to view.ts via callback) */
+  openInSplitView(nodeId: string): void {
+    if (this.onSplitViewCb) {
+      this.onSplitViewCb(nodeId);
+    }
+  }
+
   /** Clean up all listeners, observers, animation frames */
   destroy(): void {
     if (this.animFrameId !== null) {
@@ -789,6 +1033,7 @@ export class BlueprintRenderer {
     this.minimap.destroy();
     this.filterPanel.destroy();
     this.previewTooltip.destroy();
+    this.gapPanel.destroy();
     this.simulation = null;
   }
 
@@ -820,6 +1065,16 @@ export class BlueprintRenderer {
     this.minimap.setData(this.data, this.viewMode, this.organicRadii);
     this.filterPanel.setNodes(this.data.nodes);
     this.previewTooltip.clearCache();
+    this.gapPanel.hide();
+
+    // Recompute clusters if active
+    if (this.clustersActive) this.computeClusters();
+    // Recompute importance if active
+    if (this.importanceMetric) {
+      this.computeImportanceScores(this.importanceMetric);
+      this.applyImportanceSizing();
+    }
+
     this.dirty = true;
   }
 
@@ -951,6 +1206,7 @@ export class BlueprintRenderer {
     this.minimap.setTheme(this.theme);
     this.filterPanel.setTheme(this.theme);
     this.previewTooltip.setTheme(this.theme);
+    this.gapPanel.setTheme(this.theme);
     this.dirty = true;
   }
 
@@ -1053,3 +1309,5 @@ export type { ViewTransform, SelectionState } from './canvas';
 export { getTheme, resolveCategory } from './theme';
 export { applyLayout } from './layout';
 export { findPath } from './path-tracer';
+export type { ImportanceMetric } from './graph-analysis';
+export type { GapSuggestion } from './graph-analysis';

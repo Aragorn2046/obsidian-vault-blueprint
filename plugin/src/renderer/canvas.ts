@@ -750,6 +750,8 @@ export function drawOrganicNode(
   theme: ThemeColors,
   state: NodeDrawState,
   textFadeThreshold: number = 0.3,
+  clusterColor?: string,
+  isBridge?: boolean,
 ): void {
   if (!isNodeVisible(node, categories)) return;
 
@@ -849,6 +851,29 @@ export function drawOrganicNode(
     ctx.beginPath();
     ctx.arc(cx, cy, r + 6, 0, Math.PI * 2);
     ctx.stroke();
+  }
+
+  // 10. Cluster ring overlay
+  if (clusterColor) {
+    ctx.strokeStyle = clusterColor;
+    ctx.lineWidth = 3;
+    ctx.globalAlpha = 0.7;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r + 8, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+
+  // 11. Bridge node indicator (diamond shape)
+  if (isBridge) {
+    const d = r + 12;
+    ctx.globalAlpha = 0.8;
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([3, 3]);
+    ctx.beginPath();
+    ctx.arc(cx, cy, d, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.setLineDash([]);
   }
 
   ctx.globalAlpha = 1;
@@ -964,6 +989,9 @@ export function renderFrameOrganic(
   pathTargetId: string | null,
   forces?: OrganicForceSettings,
   hiddenNodeIds?: Set<string>,
+  clusterColors?: Map<string, string>,
+  bridgeNodes?: Set<string>,
+  lassoPoints?: { x: number; y: number }[],
 ): void {
   ctx.clearRect(0, 0, canvasW, canvasH);
 
@@ -1036,7 +1064,31 @@ export function renderFrameOrganic(
       isSelected: selection.selectedNodeId === node.id,
       isPathTarget: pathTargetId === node.id,
       isSearchMatch,
-    }, textFade);
+    }, textFade,
+    clusterColors?.get(node.id),
+    bridgeNodes?.has(node.id),
+    );
+  }
+
+  // Draw lasso selection polygon
+  if (lassoPoints && lassoPoints.length > 1) {
+    ctx.beginPath();
+    const p0 = lassoPoints[0];
+    ctx.moveTo(p0.x * vt.zoom + vt.panX, p0.y * vt.zoom + vt.panY);
+    for (let i = 1; i < lassoPoints.length; i++) {
+      const p = lassoPoints[i];
+      ctx.lineTo(p.x * vt.zoom + vt.panX, p.y * vt.zoom + vt.panY);
+    }
+    ctx.closePath();
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([5, 5]);
+    ctx.globalAlpha = 0.7;
+    ctx.stroke();
+    ctx.fillStyle = 'rgba(255,255,255,0.05)';
+    ctx.fill();
+    ctx.setLineDash([]);
+    ctx.globalAlpha = 1;
   }
 }
 

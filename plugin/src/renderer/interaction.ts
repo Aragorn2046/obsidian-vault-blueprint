@@ -29,6 +29,7 @@ export interface InteractionCallbacks {
   onWireDraw: (fromNodeId: string, toNodeId: string) => void;
   onGroupClick: (groupLabel: string) => void;
   requestRedraw: () => void;
+  onLassoComplete: (nodeIds: string[]) => void;
 }
 
 // ─── Data Accessors ─────────────────────────────────────────
@@ -78,6 +79,11 @@ export class InteractionManager {
   private wireDrawSource: NodeDef | null = null;
   private wireDrawEndX = 0;
   private wireDrawEndY = 0;
+
+  // Lasso state
+  private lassoMode = false;
+  private lassoPoints: { x: number; y: number }[] = [];
+  private lassoActive = false;
 
   constructor(
     canvas: HTMLCanvasElement,
@@ -213,6 +219,21 @@ export class InteractionManager {
     return null;
   }
 
+  /** Enable lasso selection mode */
+  setLassoMode(enabled: boolean): void {
+    this.lassoMode = enabled;
+    this.lassoPoints = [];
+    this.canvas.style.cursor = enabled ? 'crosshair' : 'default';
+  }
+
+  isLassoMode(): boolean {
+    return this.lassoMode;
+  }
+
+  getLassoPoints(): { x: number; y: number }[] {
+    return this.lassoPoints;
+  }
+
   /** Get current wire-draw state for rendering the temporary wire */
   getWireDrawState(): { active: boolean; sourceNode: NodeDef | null; endX: number; endY: number } {
     return {
@@ -275,6 +296,15 @@ export class InteractionManager {
     const mx = me.clientX - rect.left;
     const my = me.clientY - rect.top;
 
+    // Lasso mode: left button starts recording lasso polygon
+    if (this.lassoMode && me.button === 0) {
+      const vt = this.data.getViewTransform();
+      const worldPos = toWorld(mx, my, vt);
+      this.lassoPoints = [worldPos];
+      this.lassoActive = true;
+      return;
+    }
+
     // Check for pin hit first (wire-draw mode)
     const pinHit = this.getPinAt(mx, my);
     if (pinHit) {
@@ -308,6 +338,14 @@ export class InteractionManager {
     const my = me.clientY - rect.top;
     this.mouseX = mx;
     this.mouseY = my;
+
+    if (this.lassoActive) {
+      const vt = this.data.getViewTransform();
+      const worldPos = toWorld(mx, my, vt);
+      this.lassoPoints.push(worldPos);
+      this.callbacks.requestRedraw();
+      return;
+    }
 
     if (this.wireDrawing) {
       this.wireDrawEndX = mx;
@@ -363,6 +401,50 @@ export class InteractionManager {
 
   private onMouseUp = (e: Event): void => {
     const me = e as MouseEvent;
+
+    // Lasso completion
+    if (this.lassoActive) {
+      const polygon = this.lassoPoints;
+      const nodes = this.data.getNodes();
+      const categories = this.data.getCategories();
+      const isOrganic = this.data.getViewMode?.() === 'organic';
+      const radii = isOrganic ? this.data.getOrganicRadii?.() : null;
+      const collapsedNodeIds = this.data.getCollapsedNodeIds?.();
+
+      const selectedIds: string[] = [];
+      for (const n of nodes) {
+        if (!isNodeVisible(n, categories)) continue;
+        if (collapsedNodeIds && collapsedNodeIds.has(n.id)) continue;
+
+        let cx: number;
+        let cy: number;
+        if (isOrganic) {
+          // Organic: node center is (n.x, n.y)
+          cx = n.x;
+          cy = n.y;
+        } else {
+          // Schematic: center of the node rectangle
+          const nw = (n as any).w ?? NODE_W;
+          const nh = (n as any).h ?? 60;
+          cx = n.x + nw / 2;
+          cy = n.y + nh / 2;
+        }
+
+        if (polygon.length >= 3 && this.isPointInPolygon(cx, cy, polygon)) {
+          selectedIds.push(n.id);
+        }
+      }
+
+      this.callbacks.onLassoComplete(selectedIds);
+
+      // Reset lasso state
+      this.lassoActive = false;
+      this.lassoPoints = [];
+      this.lassoMode = false;
+      this.canvas.style.cursor = 'default';
+      this.callbacks.requestRedraw();
+      return;
+    }
 
     // Wire-draw completion
     if (this.wireDrawing && this.wireDrawSource) {
@@ -480,6 +562,25 @@ export class InteractionManager {
       this.callbacks.onEscape();
     }
   };
+
+  // ─── Geometry Helpers ───────────────────────────────────
+
+  /** Ray casting point-in-polygon test */
+  private isPointInPolygon(px: number, py: number, polygon: { x: number; y: number }[]): boolean {
+    let inside = false;
+    const n = polygon.length;
+    for (let i = 0, j = n - 1; i < n; j = i++) {
+      const xi = polygon[i].x;
+      const yi = polygon[i].y;
+      const xj = polygon[j].x;
+      const yj = polygon[j].y;
+      const intersects =
+        yi > py !== yj > py &&
+        px < ((xj - xi) * (py - yi)) / (yj - yi) + xi;
+      if (intersects) inside = !inside;
+    }
+    return inside;
+  }
 
   // ─── Cleanup ────────────────────────────────────────────
 

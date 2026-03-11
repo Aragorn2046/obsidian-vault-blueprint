@@ -1,4 +1,4 @@
-import { ItemView, Notice, TFile, WorkspaceLeaf } from "obsidian";
+import { ItemView, Notice, TFile, WorkspaceLeaf, type SplitDirection } from "obsidian";
 import { VIEW_TYPE_BLUEPRINT } from "./types";
 import type { BlueprintData, OrganicForceSettings } from "./types";
 import type VaultBlueprintPlugin from "./main";
@@ -88,6 +88,8 @@ export class BlueprintView extends ItemView {
         onColorChange: (catKey, color, dark) =>
           this.handleColorChange(catKey, color, dark),
         onNodePreview: (nodeId) => this.fetchNodePreview(nodeId),
+        onSplitView: (nodeId) => this.openSplitView(nodeId),
+        onLinkCreate2: (fromId, toId) => this.handleLinkCreate(fromId, toId),
       });
       this.renderer.render();
 
@@ -561,6 +563,19 @@ export class BlueprintView extends ItemView {
     }
   }
 
+  // ─── Split View ─────────────────────────────────────────────
+
+  private openSplitView(nodeId: string): void {
+    const node = this.findNodeById(nodeId);
+    if (!node?.path) return;
+    const file = this.app.vault.getAbstractFileByPath(node.path);
+    if (!(file instanceof TFile)) return;
+
+    // Open the file in a new split pane to the right
+    const newLeaf = this.app.workspace.getLeaf('split', 'vertical');
+    newLeaf.openFile(file);
+  }
+
   // ─── Toolbar ────────────────────────────────────────────────
 
   private buildToolbar(data: BlueprintData): void {
@@ -623,6 +638,88 @@ export class BlueprintView extends ItemView {
       text: "Minimap",
     });
     minimapBtn.addEventListener("click", () => this.renderer?.toggleMinimap());
+
+    // ─── Tier 3 buttons ─────────────────────────────
+
+    // Clusters toggle (organic mode)
+    if (currentMode === 'organic') {
+      const clustersActive = this.renderer?.isClustersActive() ?? false;
+      const clusterBtn = this.toolbarEl.createEl("button", {
+        cls: "blueprint-toolbar-btn" + (clustersActive ? " blueprint-toolbar-btn-active" : ""),
+        text: "Clusters",
+      });
+      clusterBtn.title = "Detect and highlight community clusters";
+      clusterBtn.addEventListener("click", () => {
+        this.renderer?.toggleClusters();
+        if (this.currentData && this.toolbarEl) this.buildToolbar(this.currentData);
+      });
+    }
+
+    // Gap Analysis
+    const gapBtn = this.toolbarEl.createEl("button", {
+      cls: "blueprint-toolbar-btn",
+      text: "Gaps",
+    });
+    gapBtn.title = "Find notes sharing tags but with no direct link";
+    gapBtn.addEventListener("click", () => this.renderer?.toggleGapAnalysis());
+
+    // Node Sizing dropdown (organic mode)
+    if (currentMode === 'organic') {
+      const currentMetric = this.renderer?.getImportanceMetric();
+      const sizingBtn = this.toolbarEl.createEl("button", {
+        cls: "blueprint-toolbar-btn" + (currentMetric ? " blueprint-toolbar-btn-active" : ""),
+        text: currentMetric ? `Size: ${currentMetric}` : "Node Size",
+      });
+      sizingBtn.title = "Scale nodes by importance metric";
+      sizingBtn.addEventListener("click", () => {
+        // Cycle through metrics: null → connections → betweenness → pagerank → null
+        const metrics: (import('./renderer/index').ImportanceMetric | null)[] = [
+          null, 'connections', 'betweenness', 'pagerank',
+        ];
+        const current = this.renderer?.getImportanceMetric() ?? null;
+        const idx = metrics.indexOf(current);
+        const next = metrics[(idx + 1) % metrics.length];
+        this.renderer?.setImportanceMetric(next);
+        if (next) new Notice(`Node sizing: ${next}`);
+        else new Notice('Node sizing: default');
+        if (this.currentData && this.toolbarEl) this.buildToolbar(this.currentData);
+      });
+    }
+
+    // Lasso Select (organic mode)
+    if (currentMode === 'organic') {
+      const lassoBtn = this.toolbarEl.createEl("button", {
+        cls: "blueprint-toolbar-btn",
+        text: "Lasso",
+      });
+      lassoBtn.title = "Draw a lasso to select and collapse nodes into a group";
+      lassoBtn.addEventListener("click", () => this.renderer?.startLassoMode());
+    }
+
+    // Export PNG
+    const exportBtn = this.toolbarEl.createEl("button", {
+      cls: "blueprint-toolbar-btn",
+      text: "Export",
+    });
+    exportBtn.title = "Export current view as PNG";
+    exportBtn.addEventListener("click", async () => {
+      try {
+        await this.renderer?.exportPng();
+        new Notice("Blueprint exported as PNG");
+      } catch (e) {
+        new Notice("Export failed: " + (e instanceof Error ? e.message : "unknown error"));
+      }
+    });
+
+    // Split View (selected node)
+    const splitBtn = this.toolbarEl.createEl("button", {
+      cls: "blueprint-toolbar-btn",
+      text: "Split View",
+    });
+    splitBtn.title = "Ctrl+click a node, then click Split View to open it beside the graph";
+    splitBtn.addEventListener("click", () => {
+      new Notice("Ctrl+click a node to open it in split view");
+    });
 
     // Reset Layout button
     const resetBtn = this.toolbarEl.createEl("button", {
