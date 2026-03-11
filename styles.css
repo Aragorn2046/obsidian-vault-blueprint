@@ -140,9 +140,7 @@
   right: 250px !important;
 }
 
-.blueprint-wrapper[data-controls-open] .bp-info-panel {
-  right: 252px !important;
-}
+/* Info panel is on the left — no controls offset needed */
 
 .blueprint-organic-section {
   font-size: 13px;
