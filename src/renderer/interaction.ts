@@ -23,6 +23,7 @@ export interface InteractionCallbacks {
   onBackgroundClick: () => void;
   onEscape: () => void;
   onSearchFocus: () => void;
+  onNodeDragStart: (nodeId: string) => void;
   onNodeDragEnd: (nodeId: string, x: number, y: number) => void;
   onContextMenu: (nodeId: string | null, screenX: number, screenY: number) => void;
   onWireDraw: (fromNodeId: string, toNodeId: string) => void;
@@ -256,9 +257,9 @@ export class InteractionManager {
     if (n) {
       const vt = this.data.getViewTransform();
       this.dragging = n;
-      // In organic mode, x/y is center; in schematic, x/y is top-left
       this.dragOff.x = (mx - vt.panX) / vt.zoom - n.x;
       this.dragOff.y = (my - vt.panY) / vt.zoom - n.y;
+      this.callbacks.onNodeDragStart(n.id);
     } else {
       const vt = this.data.getViewTransform();
       this.isPanning = true;

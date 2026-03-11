@@ -6,6 +6,28 @@ export const VIEW_TYPE_BLUEPRINT = "vault-blueprint-view";
 
 export type ViewMode = 'schematic' | 'organic';
 
+export interface OrganicForceSettings {
+  centerForce: number;    // 0-1, pull toward center
+  repelForce: number;     // 0-1, push nodes apart
+  linkForce: number;      // 0-1, attraction along wires
+  linkDistance: number;    // 0-1, ideal distance between linked nodes
+  nodeSize: number;       // 0-1, base node size multiplier
+  linkThickness: number;  // 0-1, wire thickness
+  arrows: boolean;        // show arrowheads on wires
+  textFadeThreshold: number; // 0-1, zoom level below which text fades
+}
+
+export const DEFAULT_ORGANIC_FORCES: OrganicForceSettings = {
+  centerForce: 0.3,
+  repelForce: 0.5,
+  linkForce: 0.4,
+  linkDistance: 0.5,
+  nodeSize: 0.4,
+  linkThickness: 0.3,
+  arrows: true,
+  textFadeThreshold: 0.3,
+};
+
 export interface VaultBlueprintSettings {
   excludePaths: string[];
   minBacklinks: number;
@@ -13,6 +35,7 @@ export interface VaultBlueprintSettings {
   categoryOverrides: Record<string, string>;
   viewMode: ViewMode;
   organicSizing: boolean; // scale node size by connection count
+  organicForces: OrganicForceSettings;
 }
 
 export const DEFAULT_SETTINGS: VaultBlueprintSettings = {
@@ -22,6 +45,7 @@ export const DEFAULT_SETTINGS: VaultBlueprintSettings = {
   categoryOverrides: {},
   viewMode: 'schematic',
   organicSizing: true,
+  organicForces: { ...DEFAULT_ORGANIC_FORCES },
 };
 
 // ─── Blueprint Data Model ────────────────────────────────────

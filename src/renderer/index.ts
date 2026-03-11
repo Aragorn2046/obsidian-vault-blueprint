@@ -29,8 +29,9 @@ import {
 } from './canvas';
 import { InteractionManager } from './interaction';
 import { applyLayout } from './layout';
-import { applyForceLayout, organicRadius } from './layouts/force-directed';
-import type { ViewMode } from '../types';
+import { ForceSimulation, organicRadius } from './layouts/force-directed';
+import type { ViewMode, OrganicForceSettings } from '../types';
+import { OrganicControlsPanel } from './organic-controls';
 import { Legend } from './legend';
 import { SearchPanel, type SearchResult } from './search';
 import { InfoPanel } from './info-panel';
@@ -47,12 +48,14 @@ export interface BlueprintRendererOptions {
   theme?: 'dark' | 'light';
   viewMode?: ViewMode;
   organicSizing?: boolean;
+  organicForces?: OrganicForceSettings;
   onNodeClick?: (nodeId: string, filePath?: string) => void;
   onNodeHover?: (nodeId: string | null) => void;
   onNodeDragEnd?: (nodeId: string, x: number, y: number) => void;
   onContextMenuAction?: (action: string, nodeId: string) => void;
   onLinkCreate?: (sourceNodeId: string, targetNodeId: string) => void;
   onViewModeChange?: (mode: ViewMode) => void;
+  onForceSettingsChange?: (forces: OrganicForceSettings) => void;
 }
 
 // ─── BlueprintRenderer ──────────────────────────────────────
@@ -73,6 +76,8 @@ export class BlueprintRenderer {
   private onContextMenuActionCb?: (action: string, nodeId: string) => void;
   private onLinkCreateCb?: (sourceNodeId: string, targetNodeId: string) => void;
   private onViewModeChangeCb?: (mode: ViewMode) => void;
+  private onForceSettingsChangeCb?: (forces: OrganicForceSettings) => void;
+  private organicForces: OrganicForceSettings;
 
   // Data
   private data: BlueprintData;
@@ -100,6 +105,8 @@ export class BlueprintRenderer {
   private infoPanel: InfoPanel;
   private statsBar: StatsBar;
   private contextMenu: ContextMenu;
+  private organicControls: OrganicControlsPanel | null = null;
+  private simulation: ForceSimulation | null = null;
 
   // Render loop
   private animFrameId: number | null = null;
@@ -121,6 +128,11 @@ export class BlueprintRenderer {
     this.onContextMenuActionCb = options.onContextMenuAction;
     this.onLinkCreateCb = options.onLinkCreate;
     this.onViewModeChangeCb = options.onViewModeChange;
+    this.onForceSettingsChangeCb = options.onForceSettingsChange;
+    this.organicForces = options.organicForces ?? {
+      centerForce: 0.3, repelForce: 0.5, linkForce: 0.4, linkDistance: 0.5,
+      nodeSize: 0.4, linkThickness: 0.3, arrows: true, textFadeThreshold: 0.3,
+    };
 
     // Ensure container has relative positioning for absolute children
     if (getComputedStyle(this.container).position === 'static') {
@@ -184,6 +196,20 @@ export class BlueprintRenderer {
     };
     this.contextMenu = new ContextMenu(this.container, ctxCallbacks, this.theme);
 
+    // 5c. Create organic controls panel
+    this.organicControls = new OrganicControlsPanel(
+      this.container,
+      {
+        onForceChange: (forces) => this.handleForceChange(forces),
+        onAnimate: () => this.handleAnimate(),
+      },
+      this.organicForces,
+      this.theme,
+    );
+    if (this.viewMode === 'organic') {
+      this.organicControls.show();
+    }
+
     // 6. Create interaction manager
     this.interaction = new InteractionManager(
       this.canvas,
@@ -206,6 +232,7 @@ export class BlueprintRenderer {
         onBackgroundClick: () => this.handleBackgroundClick(),
         onEscape: () => this.handleEscape(),
         onSearchFocus: () => this.searchPanel.focus(),
+        onNodeDragStart: (nodeId) => this.handleNodeDragStart(nodeId),
         onNodeDragEnd: (nodeId, x, y) => this.handleNodeDragEnd(nodeId, x, y),
         onContextMenu: (nodeId, sx, sy) => this.handleContextMenu(nodeId, sx, sy),
         onWireDraw: (fromNodeId, toNodeId) => this.handleWireDraw(fromNodeId, toNodeId),
@@ -256,21 +283,17 @@ export class BlueprintRenderer {
   /** Run appropriate layout based on view mode */
   private runLayout(): void {
     if (this.viewMode === 'organic') {
-      this.computeOrganicRadii();
-      applyForceLayout(this.data, this.nodeMap, this.organicSizing);
-    } else {
-      applyLayout(this.data, this.nodeMap);
-    }
-  }
-
-  /** Compute organic radii for all nodes */
-  private computeOrganicRadii(): void {
-    this.organicRadii.clear();
-    for (const node of this.data.nodes) {
-      this.organicRadii.set(
-        node.id,
-        organicRadius(node.id, this.data.wires, this.organicSizing),
+      // Create live simulation
+      this.simulation = new ForceSimulation(
+        this.data,
+        this.nodeMap,
+        this.organicSizing,
+        this.organicForces,
       );
+      this.organicRadii = this.simulation.getRadii();
+    } else {
+      this.simulation = null;
+      applyLayout(this.data, this.nodeMap);
     }
   }
 
@@ -375,13 +398,40 @@ export class BlueprintRenderer {
     this.dirty = true;
   }
 
-  // ─── Drag End & Context Menu Handlers ────────────────
+  // ─── Drag & Force Handlers ──────────────────────────
+
+  private handleNodeDragStart(nodeId: string): void {
+    if (this.simulation) {
+      this.simulation.pinNode(nodeId);
+    }
+  }
 
   private handleNodeDragEnd(nodeId: string, x: number, y: number): void {
+    if (this.simulation) {
+      this.simulation.unpinNode(nodeId);
+    }
     if (this.onNodeDragEndCb) {
       this.onNodeDragEndCb(nodeId, x, y);
     }
-    // Recalc group bounds after drag
+    this.dirty = true;
+  }
+
+  private handleForceChange(forces: OrganicForceSettings): void {
+    this.organicForces = { ...forces };
+    if (this.simulation) {
+      this.simulation.setForces(forces);
+      this.organicRadii = this.simulation.getRadii();
+    }
+    if (this.onForceSettingsChangeCb) {
+      this.onForceSettingsChangeCb(forces);
+    }
+    this.dirty = true;
+  }
+
+  private handleAnimate(): void {
+    if (this.simulation) {
+      this.simulation.reheat();
+    }
     this.dirty = true;
   }
 
@@ -459,6 +509,7 @@ export class BlueprintRenderer {
         this.theme,
         selection,
         this.pathTargetId,
+        this.organicForces,
       );
     } else {
       renderFrameFull(
@@ -511,6 +562,15 @@ export class BlueprintRenderer {
   render(): void {
     if (this.animFrameId !== null) return;
     const loop = (): void => {
+      // Tick simulation if active — forces continuous redraw during physics
+      if (this.simulation && this.simulation.isActive()) {
+        const moved = this.simulation.tick();
+        if (moved) {
+          this.organicRadii = this.simulation.getRadii();
+          this.dirty = true;
+        }
+      }
+
       if (this.dirty) {
         this.drawFrame();
         this.dirty = false;
@@ -542,13 +602,20 @@ export class BlueprintRenderer {
     this.infoPanel.destroy();
     this.statsBar.destroy();
     this.contextMenu.destroy();
+    if (this.organicControls) this.organicControls.destroy();
+    this.simulation = null;
   }
 
   /** Replace data, re-layout, re-render */
   setData(data: BlueprintData): void {
     this.data = data;
     this.initializeData();
-    this.runLayout();
+    if (this.simulation && this.viewMode === 'organic') {
+      this.simulation.setData(data, this.nodeMap);
+      this.organicRadii = this.simulation.getRadii();
+    } else {
+      this.runLayout();
+    }
 
     this.selectedNodeId = null;
     this.pathTargetId = null;
@@ -602,10 +669,11 @@ export class BlueprintRenderer {
   }
 
   /** Switch between schematic and organic view modes */
-  setViewMode(mode: ViewMode, sizing?: boolean): void {
+  setViewMode(mode: ViewMode, sizing?: boolean, forces?: OrganicForceSettings): void {
     if (mode === this.viewMode && (sizing === undefined || sizing === this.organicSizing)) return;
     this.viewMode = mode;
     if (sizing !== undefined) this.organicSizing = sizing;
+    if (forces) this.organicForces = { ...forces };
 
     // Reset positions so layout runs fresh
     for (const n of this.data.nodes) {
@@ -615,6 +683,17 @@ export class BlueprintRenderer {
 
     this.runLayout();
     this.clearSelection();
+
+    // Show/hide organic controls
+    if (this.organicControls) {
+      if (mode === 'organic') {
+        this.organicControls.setForces(this.organicForces);
+        this.organicControls.show();
+      } else {
+        this.organicControls.hide();
+      }
+    }
+
     this.zoomToFit();
     this.dirty = true;
   }
@@ -622,6 +701,13 @@ export class BlueprintRenderer {
   /** Get current view mode */
   getViewMode(): ViewMode {
     return this.viewMode;
+  }
+
+  /** Toggle organic controls panel visibility */
+  toggleControls(): void {
+    if (this.organicControls) {
+      this.organicControls.toggle();
+    }
   }
 
   /** Center on a specific node */
@@ -653,6 +739,7 @@ export class BlueprintRenderer {
     this.infoPanel.setTheme(this.theme);
     this.statsBar.setTheme(this.theme);
     this.contextMenu.setTheme(this.theme);
+    if (this.organicControls) this.organicControls.setTheme(this.theme);
     this.dirty = true;
   }
 

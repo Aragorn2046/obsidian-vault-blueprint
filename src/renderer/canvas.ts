@@ -1,7 +1,7 @@
 // ─── Canvas Core — Stateless drawing functions ──────────────
 // Zero Obsidian dependencies. Pure Canvas2D rendering.
 
-import type { NodeDef, WireDef, GroupDef, CategoryDef, PinDef } from '../types';
+import type { NodeDef, WireDef, GroupDef, CategoryDef, PinDef, OrganicForceSettings } from '../types';
 import type { ThemeColors } from './theme';
 
 // ─── Constants ──────────────────────────────────────────────
@@ -599,6 +599,7 @@ export function drawOrganicNode(
   vt: ViewTransform,
   theme: ThemeColors,
   state: NodeDrawState,
+  textFadeThreshold: number = 0.3,
 ): void {
   if (!isNodeVisible(node, categories)) return;
 
@@ -641,28 +642,31 @@ export function drawOrganicNode(
   ctx.fillStyle = highlight;
   ctx.fill();
 
-  // 5. Title text (centered, clipped to circle)
-  const maxTextW = r * 1.4;
-  const titleFs = Math.max(7, Math.min(14, Math.min(11 * vt.zoom, r * vt.zoom * 0.35)));
-  ctx.font = `bold ${titleFs}px system-ui`;
-  ctx.fillStyle = '#ffffff';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
+  // 5. Title text (centered, clipped to circle, fades at low zoom)
+  const textAlpha = vt.zoom <= textFadeThreshold
+    ? Math.max(0, vt.zoom / textFadeThreshold)
+    : 1.0;
 
-  // Word wrap within circle width
-  const lines = wrapText(ctx, node.title, maxTextW);
-  const lineH = titleFs * 1.3;
-  const startY = cy - ((lines.length - 1) * lineH) / 2;
-  for (let i = 0; i < Math.min(lines.length, 3); i++) {
-    let line = lines[i];
-    if (i === 2 && lines.length > 3) line = line.slice(0, -3) + '...';
-    ctx.fillText(line, cx, startY + i * lineH);
+  if (textAlpha > 0.05) {
+    const maxTextW = r * 1.4;
+    const titleFs = Math.max(7, Math.min(14, Math.min(11 * vt.zoom, r * vt.zoom * 0.35)));
+    ctx.font = `bold ${titleFs}px system-ui`;
+    ctx.fillStyle = '#ffffff';
+    ctx.globalAlpha = (state.isActive ? 1.0 : 0.15) * textAlpha;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+
+    const lines = wrapText(ctx, node.title, maxTextW);
+    const lineH = titleFs * 1.3;
+    const startY = cy - ((lines.length - 1) * lineH) / 2;
+    for (let i = 0; i < Math.min(lines.length, 3); i++) {
+      let line = lines[i];
+      if (i === 2 && lines.length > 3) line = line.slice(0, -3) + '...';
+      ctx.fillText(line, cx, startY + i * lineH);
+    }
+    ctx.textBaseline = 'alphabetic';
+    ctx.globalAlpha = state.isActive ? 1.0 : 0.15;
   }
-  ctx.textBaseline = 'alphabetic'; // reset
-
-  // 6. Connection count badge (bottom right)
-  const connCount = countConnections(node.id, []);  // passed separately
-  // Skip badge — organic mode shows size as the indicator
 
   // 7. Selection highlight
   if (state.isSelected) {
@@ -697,7 +701,7 @@ export function drawOrganicNode(
   ctx.globalAlpha = 1;
 }
 
-/** Draw a wire in organic mode (straight line between circle edges) */
+/** Draw a wire in organic mode (line between circle edges with optional arrow) */
 export function drawOrganicWire(
   ctx: CanvasRenderingContext2D,
   wire: WireDef,
@@ -707,6 +711,8 @@ export function drawOrganicWire(
   vt: ViewTransform,
   theme: ThemeColors,
   state: WireDrawState,
+  linkThickness: number = 0.3,
+  showArrows: boolean = true,
 ): void {
   const ends = getWireNodeIds(wire);
   const fromNode = nodeMap[ends.from];
@@ -719,7 +725,6 @@ export function drawOrganicWire(
   const x2 = toNode.x * vt.zoom + vt.panX;
   const y2 = toNode.y * vt.zoom + vt.panY;
 
-  // Shorten wire to stop at circle edges
   const dx = x2 - x1;
   const dy = y2 - y1;
   const dist = Math.sqrt(dx * dx + dy * dy);
@@ -739,6 +744,9 @@ export function drawOrganicWire(
   const perpX = -(endY - startY) * 0.05;
   const perpY = (endX - startX) * 0.05;
 
+  // Thickness scaled by setting
+  const baseThickness = 0.5 + linkThickness * 3;
+
   ctx.beginPath();
   ctx.moveTo(startX, startY);
   ctx.quadraticCurveTo(midX + perpX, midY + perpY, endX, endY);
@@ -747,18 +755,45 @@ export function drawOrganicWire(
 
   if (state.isHovered) {
     ctx.globalAlpha = 1;
-    ctx.lineWidth = Math.max(2, 3 * vt.zoom);
+    ctx.lineWidth = Math.max(2, (baseThickness + 1.5) * vt.zoom);
   } else if (state.hasSelection) {
     ctx.lineWidth = state.isActive
-      ? Math.max(1.2, 2 * vt.zoom)
-      : Math.max(0.8, 1.5 * vt.zoom);
+      ? Math.max(1, baseThickness * vt.zoom)
+      : Math.max(0.5, (baseThickness * 0.7) * vt.zoom);
     ctx.globalAlpha = state.isActive ? theme.wireActiveAlpha : theme.wireInactiveAlpha;
   } else {
-    ctx.lineWidth = Math.max(0.8, 1.5 * vt.zoom);
+    ctx.lineWidth = Math.max(0.5, baseThickness * vt.zoom);
     ctx.globalAlpha = theme.wireNormalAlpha * 0.7;
   }
 
   ctx.stroke();
+
+  // Draw arrowhead at the end
+  if (showArrows && ctx.globalAlpha > 0.1) {
+    const arrowLen = Math.max(5, 8 * vt.zoom);
+    const arrowW = Math.max(3, 5 * vt.zoom);
+    // Direction from midpoint toward end
+    const adx = endX - (midX + perpX);
+    const ady = endY - (midY + perpY);
+    const adist = Math.sqrt(adx * adx + ady * ady);
+    if (adist > 1) {
+      const ux = adx / adist;
+      const uy = ady / adist;
+      const ax = endX - ux * arrowLen;
+      const ay = endY - uy * arrowLen;
+      const px = -uy * arrowW;
+      const py = ux * arrowW;
+
+      ctx.beginPath();
+      ctx.moveTo(endX, endY);
+      ctx.lineTo(ax + px, ay + py);
+      ctx.lineTo(ax - px, ay - py);
+      ctx.closePath();
+      ctx.fillStyle = wire.color || theme.wireDefault;
+      ctx.fill();
+    }
+  }
+
   ctx.globalAlpha = 1;
 }
 
@@ -774,6 +809,7 @@ export function renderFrameOrganic(
   theme: ThemeColors,
   selection: SelectionState,
   pathTargetId: string | null,
+  forces?: OrganicForceSettings,
 ): void {
   ctx.clearRect(0, 0, canvasW, canvasH);
 
@@ -819,11 +855,12 @@ export function renderFrameOrganic(
       isPathWire,
       isHovered: selection.hoveredWireIdx === i,
       hasSelection,
-    });
+    }, forces?.linkThickness ?? 0.3, forces?.arrows ?? true);
   }
 
   // Nodes
   const searchQ = selection.searchQuery?.toLowerCase() || '';
+  const textFade = forces?.textFadeThreshold ?? 0.3;
   for (const node of data.nodes) {
     let isActive = true;
     if (selection.pathNodes) {
@@ -840,7 +877,7 @@ export function renderFrameOrganic(
       isSelected: selection.selectedNodeId === node.id,
       isPathTarget: pathTargetId === node.id,
       isSearchMatch,
-    });
+    }, textFade);
   }
 }
 

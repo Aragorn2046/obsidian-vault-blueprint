@@ -1,6 +1,6 @@
 # Vault Blueprint Plugin — Feature Plan
 
-## Current State (v0.2)
+## Current State (v0.3)
 - Canvas renderer with nodes, pins, wires, groups
 - Vault scanner: wikilinks + semantic path references
 - Click to highlight, Ctrl+click to open, Shift+click for path trace
@@ -12,6 +12,7 @@
 - **Persistent pinned layout** — node positions save on drag, survive rescans
 - **Right-click context menu** — Open, Open New Pane, Reveal, Copy Link, Backlinks, Reset Position, Delete
 - **Wire-drag link creation** — drag from output pin to node to create [[wikilink]]
+- **Organic view mode** — circular nodes sized by connections, force-directed layout, toggle via toolbar/settings
 
 ---
 

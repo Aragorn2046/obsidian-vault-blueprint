@@ -1,6 +1,6 @@
 import { ItemView, Notice, TFile, WorkspaceLeaf } from "obsidian";
 import { VIEW_TYPE_BLUEPRINT } from "./types";
-import type { BlueprintData } from "./types";
+import type { BlueprintData, OrganicForceSettings } from "./types";
 import type VaultBlueprintPlugin from "./main";
 import { BlueprintRenderer } from "./renderer/index";
 import { VaultScanner } from "./scanner/index";
@@ -74,6 +74,7 @@ export class BlueprintView extends ItemView {
         theme: this.detectTheme(),
         viewMode: this.plugin.settings.viewMode,
         organicSizing: this.plugin.settings.organicSizing,
+        organicForces: this.plugin.settings.organicForces,
         onNodeClick: (_nodeId: string, filePath?: string) =>
           this.navigateToFile(filePath),
         onNodeDragEnd: (nodeId: string, x: number, y: number) =>
@@ -82,6 +83,8 @@ export class BlueprintView extends ItemView {
           this.handleContextMenuAction(action, nodeId),
         onLinkCreate: (sourceNodeId: string, targetNodeId: string) =>
           this.handleLinkCreate(sourceNodeId, targetNodeId),
+        onForceSettingsChange: (forces) =>
+          this.handleForceSettingsChange(forces),
       });
       this.renderer.render();
 
@@ -108,6 +111,11 @@ export class BlueprintView extends ItemView {
     if (this.positionSaveTimer) {
       clearTimeout(this.positionSaveTimer);
       this.positionSaveTimer = null;
+    }
+
+    if (this.forceSaveTimer) {
+      clearTimeout(this.forceSaveTimer);
+      this.forceSaveTimer = null;
     }
 
     if (this.renderer) {
@@ -217,6 +225,19 @@ export class BlueprintView extends ItemView {
     this.forceRescan();
   }
 
+  // ─── Force Settings Persistence ────────────────────────────
+
+  private forceSaveTimer: ReturnType<typeof setTimeout> | null = null;
+
+  private handleForceSettingsChange(forces: OrganicForceSettings): void {
+    this.plugin.settings.organicForces = { ...forces };
+    // Debounce save — sliders fire many events
+    if (this.forceSaveTimer) clearTimeout(this.forceSaveTimer);
+    this.forceSaveTimer = setTimeout(async () => {
+      await this.plugin.saveSettings();
+    }, 300);
+  }
+
   // ─── View Mode Toggle ─────────────────────────────────────
 
   private async toggleViewMode(): Promise<void> {
@@ -230,7 +251,7 @@ export class BlueprintView extends ItemView {
       const cache = new BlueprintCache(this.plugin);
       await cache.clearAllPositions();
 
-      this.renderer.setViewMode(newMode, this.plugin.settings.organicSizing);
+      this.renderer.setViewMode(newMode, this.plugin.settings.organicSizing, this.plugin.settings.organicForces);
     }
 
     // Rebuild toolbar to update button label
@@ -493,6 +514,15 @@ export class BlueprintView extends ItemView {
       text: currentMode === 'organic' ? "Organic" : "Schematic",
     });
     modeBtn.addEventListener("click", () => this.toggleViewMode());
+
+    // Controls toggle (organic mode only)
+    if (currentMode === 'organic') {
+      const ctrlBtn = this.toolbarEl.createEl("button", {
+        cls: "blueprint-toolbar-btn",
+        text: "Controls",
+      });
+      ctrlBtn.addEventListener("click", () => this.renderer?.toggleControls());
+    }
 
     // Reset Layout button
     const resetBtn = this.toolbarEl.createEl("button", {
