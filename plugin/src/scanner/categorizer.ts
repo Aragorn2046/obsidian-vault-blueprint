@@ -1,4 +1,4 @@
-import type { NodeDef, CategoryDef } from "../types";
+import type { NodeDef, CategoryDef, CustomCategory } from "../types";
 import type { FileInfo, ScannerOptions, CategoryRule } from "./types";
 import { DEFAULT_CATEGORIES } from "./types";
 
@@ -13,7 +13,10 @@ export function categorizeNodes(
   colorOverrides?: Record<string, { color: string; dark: string }>,
 ): CategorizationResult {
   const fileMap = new Map(files.map((f) => [f.path, f]));
-  const validCategories = new Set(DEFAULT_CATEGORIES.map((c) => c.id));
+
+  // Merge default + custom categories
+  const allCategories = buildAllCategoryRules(options.customCategories ?? []);
+  const validCategories = new Set(allCategories.map((c) => c.id));
 
   for (const node of nodes) {
     const file = fileMap.get(node.path ?? "");
@@ -25,13 +28,30 @@ export function categorizeNodes(
     node.cat =
       matchOverride(file.path, options.categoryOverrides) ??
       matchFrontmatterType(file.frontmatter, validCategories) ??
-      matchTags(file.tags, DEFAULT_CATEGORIES) ??
-      matchFolder(file.path, DEFAULT_CATEGORIES) ??
-      matchFilePattern(file.name, DEFAULT_CATEGORIES) ??
+      matchTags(file.tags, allCategories) ??
+      matchFolder(file.path, allCategories) ??
+      matchFilePattern(file.name, allCategories) ??
       "default";
   }
 
-  return { categories: buildCategoryDefs(colorOverrides) };
+  return { categories: buildCategoryDefs(colorOverrides, options.customCategories ?? []) };
+}
+
+/** Convert custom categories to CategoryRules and merge with defaults */
+function buildAllCategoryRules(custom: CustomCategory[]): CategoryRule[] {
+  const customRules: CategoryRule[] = custom.map(c => ({
+    id: c.id,
+    label: c.label,
+    color: c.color,
+    dark: c.dark,
+    folderPatterns: c.folderPatterns ?? [],
+    filePatterns: [],
+    tags: c.tags ?? [],
+  }));
+  // Custom categories come before "default" so they take priority
+  const withoutDefault = DEFAULT_CATEGORIES.filter(c => c.id !== 'default');
+  const defaultCat = DEFAULT_CATEGORIES.find(c => c.id === 'default')!;
+  return [...customRules, ...withoutDefault, defaultCat];
 }
 
 function matchOverride(
@@ -114,6 +134,7 @@ function matchFilePattern(
 
 function buildCategoryDefs(
   colorOverrides?: Record<string, { color: string; dark: string }>,
+  customCategories?: CustomCategory[],
 ): Record<string, CategoryDef> {
   const result: Record<string, CategoryDef> = {};
   for (const cat of DEFAULT_CATEGORIES) {
@@ -124,6 +145,18 @@ function buildCategoryDefs(
       label: cat.label,
       visible: true,
     };
+  }
+  // Add custom categories
+  if (customCategories) {
+    for (const cat of customCategories) {
+      const custom = colorOverrides?.[cat.id];
+      result[cat.id] = {
+        color: custom?.color ?? cat.color,
+        dark: custom?.dark ?? cat.dark,
+        label: cat.label,
+        visible: true,
+      };
+    }
   }
   return result;
 }

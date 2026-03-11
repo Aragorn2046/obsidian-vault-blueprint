@@ -10,8 +10,10 @@ export interface ContextMenuCallbacks {
   onRevealInExplorer: (nodeId: string) => void;
   onCopyWikiLink: (nodeId: string) => void;
   onShowBacklinks: (nodeId: string) => void;
+  onSetCategory: (nodeId: string, categoryId: string) => void;
   onDeleteNote: (nodeId: string) => void;
   onResetNodePosition: (nodeId: string) => void;
+  getCategories?: () => Record<string, { label: string; color: string }>;
 }
 
 export class ContextMenu {
@@ -80,6 +82,55 @@ export class ContextMenu {
       });
 
       this.el.appendChild(row);
+    }
+
+    // "Set Category" submenu
+    const cats = this.callbacks.getCategories?.();
+    if (cats && this.activeNodeId) {
+      const sep = document.createElement('div');
+      sep.className = 'blueprint-context-separator';
+      this.el.appendChild(sep);
+
+      const catHeader = document.createElement('div');
+      catHeader.className = 'blueprint-context-item';
+      catHeader.style.fontWeight = '600';
+      catHeader.style.fontSize = '10px';
+      catHeader.style.textTransform = 'uppercase';
+      catHeader.style.letterSpacing = '0.5px';
+      catHeader.style.opacity = '0.6';
+      catHeader.style.cursor = 'default';
+      catHeader.textContent = 'Set Category';
+      this.el.appendChild(catHeader);
+
+      for (const [catId, catInfo] of Object.entries(cats)) {
+        const catRow = document.createElement('div');
+        catRow.className = 'blueprint-context-item';
+        catRow.style.display = 'flex';
+        catRow.style.alignItems = 'center';
+        catRow.style.gap = '6px';
+
+        const dot = document.createElement('span');
+        dot.style.width = '8px';
+        dot.style.height = '8px';
+        dot.style.borderRadius = '50%';
+        dot.style.background = catInfo.color;
+        dot.style.flexShrink = '0';
+        catRow.appendChild(dot);
+
+        const label = document.createElement('span');
+        label.textContent = catInfo.label;
+        catRow.appendChild(label);
+
+        const id = catId;
+        catRow.addEventListener('click', (e) => {
+          e.stopPropagation();
+          if (this.activeNodeId) {
+            this.callbacks.onSetCategory(this.activeNodeId, id);
+          }
+          this.hide();
+        });
+        this.el.appendChild(catRow);
+      }
     }
 
     // Position menu near click, keeping it on screen

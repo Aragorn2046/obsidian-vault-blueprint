@@ -28,12 +28,22 @@ export const DEFAULT_ORGANIC_FORCES: OrganicForceSettings = {
   textFadeThreshold: 0.3,
 };
 
+export interface CustomCategory {
+  id: string;
+  label: string;
+  color: string;
+  dark: string;
+  folderPatterns: string[];
+  tags: string[];
+}
+
 export interface VaultBlueprintSettings {
   excludePaths: string[];
   minBacklinks: number;
   showFolderGroups: boolean;
   categoryOverrides: Record<string, string>;
   categoryColors: Record<string, { color: string; dark: string }>;
+  customCategories: CustomCategory[];
   viewMode: ViewMode;
   organicSizing: boolean; // scale node size by connection count
   organicForces: OrganicForceSettings;
@@ -45,6 +55,7 @@ export const DEFAULT_SETTINGS: VaultBlueprintSettings = {
   showFolderGroups: true,
   categoryOverrides: {},
   categoryColors: {},
+  customCategories: [],
   viewMode: 'schematic',
   organicSizing: true,
   organicForces: { ...DEFAULT_ORGANIC_FORCES },

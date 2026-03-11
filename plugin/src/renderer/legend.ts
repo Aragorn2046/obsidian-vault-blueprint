@@ -10,6 +10,7 @@ export interface LegendCallbacks {
   onCategoryToggle: (catKey: string, visible: boolean) => void;
   onAllCategories: (visible: boolean) => void;
   onColorChange?: (catKey: string, color: string, dark: string) => void;
+  onAddCategory?: (label: string, color: string) => void;
 }
 
 // ─── Legend ──────────────────────────────────────────────────
@@ -198,6 +199,133 @@ export class Legend {
       this.el.appendChild(row);
       this.rows.set(key, row);
     }
+
+    // "Add Category" button
+    if (this.callbacks.onAddCategory) {
+      const addBtn = document.createElement('div');
+      Object.assign(addBtn.style, {
+        display: 'flex',
+        alignItems: 'center',
+        gap: '6px',
+        margin: '6px 0 0',
+        padding: '4px 0',
+        fontSize: '10px',
+        color: this.theme.textMuted,
+        cursor: 'pointer',
+        borderTop: `1px solid ${this.theme.panelBorder}`,
+      });
+      addBtn.textContent = '+ Add Category';
+      addBtn.addEventListener('mouseenter', () => {
+        addBtn.style.color = this.theme.textPrimary;
+      });
+      addBtn.addEventListener('mouseleave', () => {
+        addBtn.style.color = this.theme.textMuted;
+      });
+      addBtn.addEventListener('click', () => {
+        this.showAddCategoryDialog();
+      });
+      this.el.appendChild(addBtn);
+    }
+  }
+
+  /** Show inline add category dialog */
+  private showAddCategoryDialog(): void {
+    // Create a simple inline form
+    const dialog = document.createElement('div');
+    Object.assign(dialog.style, {
+      marginTop: '6px',
+      padding: '8px',
+      background: 'rgba(0,0,0,0.2)',
+      borderRadius: '4px',
+    });
+
+    const nameInput = document.createElement('input');
+    nameInput.type = 'text';
+    nameInput.placeholder = 'Category name';
+    Object.assign(nameInput.style, {
+      width: '100%',
+      background: 'rgba(255,255,255,0.1)',
+      border: `1px solid ${this.theme.panelBorder}`,
+      borderRadius: '3px',
+      padding: '4px 6px',
+      color: this.theme.panelText,
+      fontSize: '11px',
+      fontFamily: 'inherit',
+      marginBottom: '6px',
+      boxSizing: 'border-box',
+    });
+    dialog.appendChild(nameInput);
+
+    const colorRow = document.createElement('div');
+    colorRow.style.display = 'flex';
+    colorRow.style.gap = '6px';
+    colorRow.style.alignItems = 'center';
+
+    const colorInput = document.createElement('input');
+    colorInput.type = 'color';
+    colorInput.value = '#' + Math.floor(Math.random() * 16777215).toString(16).padStart(6, '0');
+    colorInput.style.width = '28px';
+    colorInput.style.height = '24px';
+    colorInput.style.border = 'none';
+    colorInput.style.cursor = 'pointer';
+    colorRow.appendChild(colorInput);
+
+    const saveBtn = document.createElement('button');
+    saveBtn.textContent = 'Add';
+    Object.assign(saveBtn.style, {
+      flex: '1',
+      background: this.theme.buttonBg,
+      border: `1px solid ${this.theme.buttonBorder}`,
+      color: this.theme.buttonText,
+      padding: '3px 8px',
+      borderRadius: '3px',
+      fontSize: '10px',
+      cursor: 'pointer',
+      fontFamily: 'inherit',
+    });
+    colorRow.appendChild(saveBtn);
+
+    const cancelBtn = document.createElement('button');
+    cancelBtn.textContent = 'Cancel';
+    Object.assign(cancelBtn.style, {
+      background: 'transparent',
+      border: `1px solid ${this.theme.panelBorder}`,
+      color: this.theme.textMuted,
+      padding: '3px 8px',
+      borderRadius: '3px',
+      fontSize: '10px',
+      cursor: 'pointer',
+      fontFamily: 'inherit',
+    });
+    colorRow.appendChild(cancelBtn);
+
+    dialog.appendChild(colorRow);
+
+    saveBtn.addEventListener('click', () => {
+      const label = nameInput.value.trim();
+      if (label) {
+        this.callbacks.onAddCategory?.(label, colorInput.value);
+      }
+      dialog.remove();
+    });
+
+    cancelBtn.addEventListener('click', () => {
+      dialog.remove();
+    });
+
+    nameInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        const label = nameInput.value.trim();
+        if (label) {
+          this.callbacks.onAddCategory?.(label, colorInput.value);
+        }
+        dialog.remove();
+      }
+      if (e.key === 'Escape') dialog.remove();
+    });
+
+    this.el.appendChild(dialog);
+    nameInput.focus();
   }
 
   // ─── Helpers ──────────────────────────────────────────

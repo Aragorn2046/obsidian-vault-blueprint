@@ -307,9 +307,6 @@ export function findGaps(
         // Skip if already connected
         if (connected.has(`${a}|${b}`)) continue;
 
-        // Must be in different clusters
-        if (clusters.get(a) === clusters.get(b)) continue;
-
         // Count shared tags
         const tagsA = nodeTags.get(a);
         const tagsB = nodeTags.get(b);
@@ -320,21 +317,26 @@ export function findGaps(
           if (tagsB.has(t)) shared.push(t);
         }
 
-        if (shared.length < 2) continue;
+        if (shared.length < 1) continue;
+
+        const inDiffCluster = clusters.get(a) !== clusters.get(b);
+        const reason = shared.length >= 2
+          ? `Share ${shared.length} tags (${shared.join(', ')}) with no direct link`
+          : `Share tag "${shared[0]}" with no direct link`;
 
         gaps.push({
           nodeA: a,
           nodeB: b,
           sharedTags: shared,
-          reason: `Share ${shared.length} tags (${shared.join(', ')}) but are in different clusters with no direct link`,
+          reason: reason + (inDiffCluster ? ' (different clusters)' : ''),
         });
       }
     }
   }
 
-  // Sort by shared tag count descending, limit to 20
+  // Sort by shared tag count descending, limit to 30
   gaps.sort((a, b) => b.sharedTags.length - a.sharedTags.length);
-  return gaps.slice(0, 20);
+  return gaps.slice(0, 30);
 }
 
 // ─── PageRank ───────────────────────────────────────────────

@@ -47,6 +47,13 @@ export class BlueprintView extends ItemView {
     this.canvas = this.wrapper.createEl("canvas");
     this.canvas.addClass("blueprint-canvas");
 
+    // Prevent scroll wheel from propagating to Obsidian's scroll container
+    // This stops the whole view from scrolling when wheeling over overlay panels
+    this.wrapper.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+    }, { passive: false });
+
     // Loading state
     this.showLoading();
 
@@ -90,6 +97,7 @@ export class BlueprintView extends ItemView {
         onNodePreview: (nodeId) => this.fetchNodePreview(nodeId),
         onSplitView: (nodeId) => this.openSplitView(nodeId),
         onLinkCreate2: (fromId, toId) => this.handleLinkCreate(fromId, toId),
+        onAddCategory: (label, color) => this.handleAddCategory(label, color),
       });
       this.renderer.render();
 
@@ -220,9 +228,11 @@ export class BlueprintView extends ItemView {
     this.savedPositions = {};
     const cache = new BlueprintCache(this.plugin);
     await cache.clearAllPositions();
+    // Also expand any lasso-collapsed groups
+    this.renderer?.expandAllLassoGroups();
     // Force rescan to re-run layout from scratch
     this.forceRescan();
-    new Notice("Layout reset — positions cleared");
+    new Notice("Layout reset — positions cleared, groups expanded");
   }
 
   private async resetNodePosition(nodeId: string): Promise<void> {
@@ -448,6 +458,61 @@ export class BlueprintView extends ItemView {
       case 'reset-position':
         this.resetNodePosition(nodeId);
         break;
+
+      default:
+        // Handle set-category:<catId> actions
+        if (action.startsWith('set-category:')) {
+          const catId = action.slice('set-category:'.length);
+          this.setCategoryOnNode(nodeId, catId);
+        }
+        break;
+    }
+  }
+
+  /** Write category to a note's frontmatter `type` field */
+  private async setCategoryOnNode(nodeId: string, categoryId: string): Promise<void> {
+    const node = this.findNodeById(nodeId);
+    if (!node?.path) return;
+
+    const file = this.app.vault.getAbstractFileByPath(node.path);
+    if (!(file instanceof TFile)) return;
+
+    try {
+      const content = await this.app.vault.read(file);
+
+      let newContent: string;
+      if (content.startsWith('---')) {
+        const endIdx = content.indexOf('---', 3);
+        if (endIdx !== -1) {
+          const frontmatter = content.slice(3, endIdx);
+          // Check if type field exists
+          if (/^type\s*:/m.test(frontmatter)) {
+            // Replace existing type field
+            const updatedFm = frontmatter.replace(/^type\s*:.*$/m, `type: ${categoryId}`);
+            newContent = '---' + updatedFm + content.slice(endIdx);
+          } else {
+            // Add type field to existing frontmatter
+            newContent = '---\ntype: ' + categoryId + frontmatter + content.slice(endIdx);
+          }
+        } else {
+          // Malformed frontmatter — add new one
+          newContent = `---\ntype: ${categoryId}\n---\n` + content;
+        }
+      } else {
+        // No frontmatter — add one
+        newContent = `---\ntype: ${categoryId}\n---\n` + content;
+      }
+
+      await this.app.vault.modify(file, newContent);
+
+      // Find category label for notice
+      const catLabel = this.currentData?.categories[categoryId]?.label ?? categoryId;
+      new Notice(`Set "${node.title}" → ${catLabel}`);
+
+      // Rescan to reflect change
+      this.scheduleRescan();
+    } catch (e) {
+      new Notice("Failed to set category: " + (e instanceof Error ? e.message : "unknown error"));
     }
   }
 
@@ -481,6 +546,7 @@ export class BlueprintView extends ItemView {
       minBacklinks: this.plugin.settings.minBacklinks,
       categoryOverrides: this.plugin.settings.categoryOverrides,
       categoryColors: this.plugin.settings.categoryColors ?? {},
+      customCategories: this.plugin.settings.customCategories ?? [],
       showFolderGroups: this.plugin.settings.showFolderGroups,
     });
   }
@@ -561,6 +627,44 @@ export class BlueprintView extends ItemView {
     if (file instanceof TFile) {
       this.app.workspace.openLinkText(filePath, "", false);
     }
+  }
+
+  // ─── Custom Categories ──────────────────────────────────────
+
+  private async handleAddCategory(label: string, color: string): Promise<void> {
+    const id = label.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+    if (!id) return;
+
+    // Check if already exists
+    const existing = this.plugin.settings.customCategories ?? [];
+    if (existing.some(c => c.id === id)) {
+      new Notice(`Category "${label}" already exists`);
+      return;
+    }
+
+    // Generate darker variant
+    const r = parseInt(color.slice(1, 3), 16);
+    const g = parseInt(color.slice(3, 5), 16);
+    const b = parseInt(color.slice(5, 7), 16);
+    const dark = '#' + [r, g, b].map(c => Math.round(c * 0.7).toString(16).padStart(2, '0')).join('');
+
+    const newCat = {
+      id,
+      label,
+      color,
+      dark,
+      folderPatterns: [],
+      tags: [`#${id}`],
+    };
+
+    if (!this.plugin.settings.customCategories) {
+      this.plugin.settings.customCategories = [];
+    }
+    this.plugin.settings.customCategories.push(newCat);
+    await this.plugin.saveSettings();
+
+    new Notice(`Category "${label}" added — use type: ${id} in frontmatter or #${id} tag`);
+    this.forceRescan();
   }
 
   // ─── Split View ─────────────────────────────────────────────
@@ -711,15 +815,19 @@ export class BlueprintView extends ItemView {
       }
     });
 
-    // Split View (selected node)
-    const splitBtn = this.toolbarEl.createEl("button", {
-      cls: "blueprint-toolbar-btn",
-      text: "Split View",
-    });
-    splitBtn.title = "Ctrl+click a node, then click Split View to open it beside the graph";
-    splitBtn.addEventListener("click", () => {
-      new Notice("Ctrl+click a node to open it in split view");
-    });
+    // Uncollapse lasso groups (only show if there are lasso groups)
+    if (this.renderer?.hasLassoGroups()) {
+      const uncollapseBtn = this.toolbarEl.createEl("button", {
+        cls: "blueprint-toolbar-btn",
+        text: "Uncollapse All",
+      });
+      uncollapseBtn.title = "Expand all lasso-collapsed groups and restore hidden nodes";
+      uncollapseBtn.addEventListener("click", () => {
+        this.renderer?.expandAllLassoGroups();
+        if (this.currentData && this.toolbarEl) this.buildToolbar(this.currentData);
+        new Notice("All lasso groups expanded");
+      });
+    }
 
     // Reset Layout button
     const resetBtn = this.toolbarEl.createEl("button", {

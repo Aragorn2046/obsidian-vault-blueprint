@@ -21,6 +21,7 @@ export class VaultScanner {
       minBacklinks: options.minBacklinks ?? 3,
       categoryOverrides: options.categoryOverrides ?? {},
       categoryColors: options.categoryColors ?? {},
+      customCategories: options.customCategories ?? [],
       showFolderGroups: options.showFolderGroups ?? true,
     };
   }

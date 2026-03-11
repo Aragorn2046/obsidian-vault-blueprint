@@ -75,6 +75,7 @@ export interface BlueprintRendererOptions {
   onColorChange?: (catKey: string, color: string, dark: string) => void;
   onLinkCreate2?: (fromId: string, toId: string) => void;
   onSplitView?: (nodeId: string) => void;
+  onAddCategory?: (label: string, color: string) => void;
 }
 
 // ─── BlueprintRenderer ──────────────────────────────────────
@@ -198,6 +199,7 @@ export class BlueprintRenderer {
       onCategoryToggle: (catKey, visible) => this.setCategoryVisible(catKey, visible),
       onAllCategories: (visible) => this.setAllCategoriesVisible(visible),
       onColorChange: (catKey, color, dark) => this.handleColorChange(catKey, color, dark),
+      onAddCategory: options.onAddCategory ? (label, color) => options.onAddCategory!(label, color) : undefined,
     }, this.theme);
     this.legend.update(this.data.categories);
 
@@ -236,6 +238,14 @@ export class BlueprintRenderer {
       onShowBacklinks: (id) => {
         this.selectNode(id);
         this.updateInfoPanel();
+      },
+      onSetCategory: (id, catId) => this.fireContextAction(`set-category:${catId}`, id),
+      getCategories: () => {
+        const result: Record<string, { label: string; color: string }> = {};
+        for (const [key, cat] of Object.entries(this.data.categories)) {
+          result[key] = { label: cat.label, color: cat.color };
+        }
+        return result;
       },
       onDeleteNote: (id) => this.fireContextAction('delete', id),
       onResetNodePosition: (id) => this.fireContextAction('reset-position', id),
@@ -845,11 +855,20 @@ export class BlueprintRenderer {
     const clusters = detectClusters(this.data.nodes, this.data.wires);
     this.bridgeNodes = findBridgeNodes(this.data.nodes, this.data.wires, clusters);
 
-    // Assign colors to clusters
+    // Count members per cluster
+    const clusterSizes = new Map<number, number>();
+    for (const [, clusterIdx] of clusters) {
+      clusterSizes.set(clusterIdx, (clusterSizes.get(clusterIdx) ?? 0) + 1);
+    }
+
+    // Only color clusters with 3+ members — singletons/pairs are noise
     this.clusterColors = new Map();
     for (const [nodeId, clusterIdx] of clusters) {
-      const color = BlueprintRenderer.CLUSTER_PALETTE[clusterIdx % BlueprintRenderer.CLUSTER_PALETTE.length];
-      this.clusterColors.set(nodeId, color);
+      const size = clusterSizes.get(clusterIdx) ?? 0;
+      if (size >= 3) {
+        const color = BlueprintRenderer.CLUSTER_PALETTE[clusterIdx % BlueprintRenderer.CLUSTER_PALETTE.length];
+        this.clusterColors.set(nodeId, color);
+      }
     }
   }
 
@@ -951,9 +970,18 @@ export class BlueprintRenderer {
     this.interaction.setLassoMode(true);
   }
 
-  /** Handle lasso completion — collapse selected nodes */
+  /** Handle lasso completion — collapse selected nodes into a group */
   private handleLassoComplete(nodeIds: string[]): void {
     if (nodeIds.length < 2) return;
+
+    // Safety: don't collapse if selecting more than 80% of visible nodes
+    const visibleCount = this.data.nodes.filter(n =>
+      isNodeVisible(n, this.data.categories) && !this.collapsedNodeIds.has(n.id)
+    ).length;
+    if (nodeIds.length > visibleCount * 0.8) {
+      // Too many nodes selected — just highlight, don't collapse
+      return;
+    }
 
     // Create a virtual group from lassoed nodes
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
@@ -967,15 +995,8 @@ export class BlueprintRenderer {
       maxY = Math.max(maxY, n.y + r);
     }
 
-    const groupLabel = `Group (${nodeIds.length} nodes)`;
-
-    // Check if a group with these nodes already exists
-    const existing = this.data.groups.find(g => g.label === groupLabel);
-    if (existing) {
-      // Toggle collapse
-      this.handleGroupClick(groupLabel);
-      return;
-    }
+    // Use a unique label with timestamp to avoid conflicts
+    const groupLabel = `Lasso group (${nodeIds.length} nodes)`;
 
     // Create new group
     const group: GroupDef = {
@@ -995,11 +1016,20 @@ export class BlueprintRenderer {
     this.dirty = true;
   }
 
+  /** Check if there are any lasso-created groups */
+  hasLassoGroups(): boolean {
+    return this.data.groups.some(g => g.label.startsWith('Lasso group'));
+  }
+
   /** Expand all collapsed lasso groups */
   expandAllLassoGroups(): void {
-    // Remove groups that were created by lasso (they start with "Group (")
-    this.data.groups = this.data.groups.filter(g => !g.label.startsWith('Group ('));
-    this.collapsedGroups.clear();
+    this.data.groups = this.data.groups.filter(g => !g.label.startsWith('Lasso group'));
+    // Also clear any collapsed state
+    for (const label of [...this.collapsedGroups]) {
+      if (label.startsWith('Lasso group')) {
+        this.collapsedGroups.delete(label);
+      }
+    }
     this.rebuildCollapsedNodeIds();
     this.dirty = true;
   }
@@ -1039,12 +1069,31 @@ export class BlueprintRenderer {
 
   /** Replace data, re-layout, re-render */
   setData(data: BlueprintData): void {
+    // Preserve existing node positions before replacing data
+    const oldPositions = new Map<string, { x: number; y: number }>();
+    for (const n of this.data.nodes) {
+      if (n.x !== 0 || n.y !== 0) {
+        oldPositions.set(n.id, { x: n.x, y: n.y });
+      }
+    }
+
     this.data = data;
     this.initializeData();
+
+    // Restore positions for nodes that existed before
+    for (const n of this.data.nodes) {
+      const saved = oldPositions.get(n.id);
+      if (saved) {
+        n.x = saved.x;
+        n.y = saved.y;
+      }
+    }
+
     if (this.simulation && this.viewMode === 'organic') {
       this.simulation.setData(data, this.nodeMap);
       this.organicRadii = this.simulation.getRadii();
     } else {
+      // Only run layout for schematic — it will skip fully-positioned graphs
       this.runLayout();
     }
 
