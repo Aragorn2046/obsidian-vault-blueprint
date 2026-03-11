@@ -1,0 +1,112 @@
+{
+  "meta": {
+    "title": "Obsidian Vault Blueprint",
+    "subtitle": "Demo — a sample knowledge worker's vault"
+  },
+  "categories": {
+    "config":  { "color": "#6366f1", "dark": "#35386e", "label": "Config" },
+    "cmd":     { "color": "#22d3ee", "dark": "#0e5f6b", "label": "Commands" },
+    "vault":   { "color": "#34d399", "dark": "#1a5c44", "label": "Vault Structure" },
+    "kb":      { "color": "#a78bfa", "dark": "#4a3d70", "label": "Knowledge Base" },
+    "auto":    { "color": "#fb923c", "dark": "#6b3d18", "label": "Automation" }
+  },
+  "groups": [
+    { "label": "Config & Settings",  "color": "#6366f1", "x": 60,  "y": 40,  "w": 280, "h": 260 },
+    { "label": "Workflow Commands",   "color": "#22d3ee", "x": 440, "y": 40,  "w": 280, "h": 460 },
+    { "label": "Vault Structure",     "color": "#34d399", "x": 820, "y": 40,  "w": 280, "h": 520 },
+    { "label": "Knowledge Base",      "color": "#a78bfa", "x": 1200,"y": 40,  "w": 280, "h": 400 },
+    { "label": "Automation",          "color": "#fb923c", "x": 440, "y": 560, "w": 280, "h": 120 }
+  ],
+  "nodes": [
+    {
+      "id": "main-config", "cat": "config", "title": "CLAUDE.md", "x": 100, "y": 80,
+      "path": "~/project/CLAUDE.md",
+      "desc": "Master configuration file. Defines session behavior, auto-read rules, and preferences.",
+      "pins": { "in": [], "out": [{"id": "reads", "label": "auto-reads"}, {"id": "start", "label": "session start"}] }
+    },
+    {
+      "id": "memory", "cat": "config", "title": "MEMORY.md", "x": 100, "y": 220,
+      "path": "~/.claude/memory/MEMORY.md",
+      "desc": "Persistent memory across sessions. Key paths, project state, preferences.",
+      "pins": { "in": [], "out": [] }
+    },
+    {
+      "id": "cmd-daily", "cat": "cmd", "title": "/today", "x": 480, "y": 80,
+      "path": "~/.claude/commands/today.md",
+      "desc": "Daily planning command. Reads todos, calendar, and builds action plan.",
+      "pins": { "in": [], "out": [{"id": "r-todo", "label": "reads"}, {"id": "r-log", "label": "reads"}] }
+    },
+    {
+      "id": "cmd-sync", "cat": "cmd", "title": "/sync", "x": 480, "y": 220,
+      "path": "~/.claude/commands/sync.md",
+      "desc": "Vault maintenance. Detects changes, updates indexes, fixes orphaned notes.",
+      "pins": { "in": [], "out": [{"id": "s-moc", "label": "updates"}, {"id": "s-todo", "label": "cross-refs"}] }
+    },
+    {
+      "id": "cmd-wrapup", "cat": "cmd", "title": "/wrapup", "x": 480, "y": 360,
+      "path": "~/.claude/commands/wrapup.md",
+      "desc": "End-of-session. Logs work, updates MOCs, checks todos, verifies state.",
+      "pins": { "in": [], "out": [{"id": "w-log", "label": "appends"}, {"id": "w-moc", "label": "updates"}, {"id": "w-todo", "label": "updates"}] }
+    },
+    {
+      "id": "vault-moc", "cat": "vault", "title": "Vault MOC.md", "x": 860, "y": 80,
+      "path": "vault/Vault MOC.md",
+      "desc": "Master index of all vault notes. Map of Content for the entire vault.",
+      "pins": { "in": [{"id": "updated", "label": "updated by"}], "out": [] }
+    },
+    {
+      "id": "todo-list", "cat": "vault", "title": "TODO.md", "x": 860, "y": 200,
+      "path": "vault/TODO.md",
+      "desc": "Active task list. Read at session start, updated by multiple commands.",
+      "pins": { "in": [{"id": "rw", "label": "read/written"}], "out": [] }
+    },
+    {
+      "id": "inbox", "cat": "vault", "title": "Inbox.md", "x": 860, "y": 320,
+      "path": "vault/Inbox.md",
+      "desc": "Quick-capture inbox for ideas and notes. Processed periodically.",
+      "pins": { "in": [{"id": "processed", "label": "processed by"}], "out": [] }
+    },
+    {
+      "id": "session-log", "cat": "vault", "title": "Session Log.md", "x": 860, "y": 440,
+      "path": "vault/Session Log.md",
+      "desc": "Chronological log of all sessions and actions taken.",
+      "pins": { "in": [{"id": "appended", "label": "appended by"}], "out": [] }
+    },
+    {
+      "id": "kb-context", "cat": "kb", "title": "Context File.md", "x": 1240, "y": 80,
+      "path": "vault/Knowledge Base/Context.md",
+      "desc": "Full context for session priming. Identity, projects, preferences.",
+      "pins": { "in": [{"id": "read-by", "label": "read by"}], "out": [] }
+    },
+    {
+      "id": "kb-profile", "cat": "kb", "title": "Profile.md", "x": 1240, "y": 200,
+      "path": "vault/Knowledge Base/Profile.md",
+      "desc": "Personal or project profile information.",
+      "pins": { "in": [{"id": "read-by", "label": "read by"}], "out": [] }
+    },
+    {
+      "id": "kb-schema", "cat": "kb", "title": "Vault Schema.md", "x": 1240, "y": 320,
+      "path": "vault/Knowledge Base/Schema.md",
+      "desc": "YAML frontmatter schema documentation for all note types.",
+      "pins": { "in": [{"id": "read-by", "label": "read by"}], "out": [] }
+    },
+    {
+      "id": "cron-inbox", "cat": "auto", "title": "inbox-cron.sh", "x": 480, "y": 600,
+      "path": "~/scripts/inbox-cron.sh",
+      "desc": "Cron job that periodically processes the inbox.",
+      "pins": { "in": [], "out": [{"id": "proc", "label": "processes"}] }
+    }
+  ],
+  "wires": [
+    { "from": "main-config.reads",    "to": "kb-context.read-by",  "color": "#a78bfa" },
+    { "from": "main-config.start",    "to": "todo-list.rw",        "color": "#34d399" },
+    { "from": "cmd-daily.r-todo",     "to": "todo-list.rw",        "color": "#22d3ee" },
+    { "from": "cmd-daily.r-log",      "to": "session-log.appended","color": "#22d3ee" },
+    { "from": "cmd-sync.s-moc",       "to": "vault-moc.updated",   "color": "#22d3ee" },
+    { "from": "cmd-sync.s-todo",      "to": "todo-list.rw",        "color": "#22d3ee" },
+    { "from": "cmd-wrapup.w-log",     "to": "session-log.appended","color": "#22d3ee" },
+    { "from": "cmd-wrapup.w-moc",     "to": "vault-moc.updated",   "color": "#22d3ee" },
+    { "from": "cmd-wrapup.w-todo",    "to": "todo-list.rw",        "color": "#22d3ee" },
+    { "from": "cron-inbox.proc",      "to": "inbox.processed",     "color": "#fb923c" }
+  ]
+}

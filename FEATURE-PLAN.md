@@ -304,11 +304,11 @@
 |-------|----------|---------------|
 | Phase 1 | ~~1.2 Persistent Layout + 1.5 Context Menu~~ | ✅ Done |
 | Phase 2 | ~~1.1 Wire-Drag Link Creation~~ | ✅ Done |
-| Phase 3 | 1.3 Typed/Colored Wires | 1-2 |
-| Phase 4 | 1.4 Collapsible Groups | 1-2 |
-| Phase 5 | 2.1 Node Preview + 2.2 Semantic Zoom | 1 |
-| Phase 6 | 2.3 Minimap | 1 |
-| Phase 7 | 2.4 Multiple Layouts | 2-3 |
+| Phase 3 | ~~1.3 Typed/Colored Wires + Organic View Mode~~ | ✅ Done |
+| Phase 4 | ~~1.4 Collapsible Groups~~ | ✅ Done |
+| Phase 5 | ~~2.1 Node Preview + 2.2 Semantic Zoom~~ | ✅ Done |
+| Phase 6 | ~~2.3 Minimap~~ | ✅ Done |
+| Phase 7 | 2.4 Multiple Layouts | Deferred (organic/schematic covers main use) |
 | Phase 8 | 2.5 Dataview Filtering | 1-2 |
 | Phase 9 | Tier 3 features (as desired) | 1 each |
 
