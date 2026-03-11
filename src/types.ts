@@ -85,12 +85,15 @@ export interface PinDef {
   label: string;
 }
 
+export type WireType = 'link' | 'semantic' | 'embed' | 'tag';
+
 export interface WireDef {
   from: string;
   fromPin?: string;
   to: string;
   toPin?: string;
   color?: string;
+  type?: WireType;
 }
 
 export interface GroupDef {

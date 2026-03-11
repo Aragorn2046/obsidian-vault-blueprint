@@ -4,6 +4,8 @@ import { collectFiles } from "./file-collector";
 import { buildNodes } from "./node-builder";
 import { buildWires, resolveWirePins } from "./wire-builder";
 import { buildSemanticWires } from "./semantic-wires";
+import { buildEmbedWires } from "./embed-wires";
+import { buildTagWires } from "./tag-wires";
 import { categorizeNodes } from "./categorizer";
 import { buildGroups } from "./group-builder";
 
@@ -62,9 +64,28 @@ export class VaultScanner {
         existingWireKeys,
       );
       wireResult.wires.push(...semanticWires);
+
+      // Stage 3c: Build embed wires (![[embed]] references)
+      const embedWires = await buildEmbedWires(
+        app,
+        nodeResult.nodes,
+        nodeResult.nodeIdMap,
+        existingWireKeys,
+      );
+      wireResult.wires.push(...embedWires);
+
+      // Stage 3d: Build tag wires (shared tags between nodes)
+      const tagWires = buildTagWires(
+        nodeResult.nodes,
+        collected.files,
+        nodeResult.nodeIdMap,
+        existingWireKeys,
+      );
+      wireResult.wires.push(...tagWires);
+
       wireResult.wireCount = wireResult.wires.length;
 
-      // Stage 3c: Resolve wire pin references (handle collapsed "multiple" pins)
+      // Stage 3e: Resolve wire pin references (handle collapsed "multiple" pins)
       resolveWirePins(wireResult.wires, nodeResult.nodes);
 
       // Stage 4: Categorize nodes (assign cat field)

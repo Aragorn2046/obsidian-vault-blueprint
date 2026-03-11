@@ -409,7 +409,26 @@ export function drawWire(
   ctx.moveTo(x1, y1);
   ctx.bezierCurveTo(x1 + dx, y1, x2 - dx, y2, x2, y2);
 
-  ctx.strokeStyle = wire.color || theme.wireDefault;
+  // Wire type styling
+  const wireType = wire.type ?? 'link';
+  switch (wireType) {
+    case 'semantic':
+      ctx.strokeStyle = wire.color || '#a78bfa'; // purple
+      ctx.setLineDash([6 * vt.zoom, 4 * vt.zoom]);
+      break;
+    case 'embed':
+      ctx.strokeStyle = wire.color || '#22d3ee'; // cyan
+      ctx.setLineDash([2 * vt.zoom, 3 * vt.zoom]);
+      break;
+    case 'tag':
+      ctx.strokeStyle = wire.color || '#8899aa'; // muted gray
+      ctx.setLineDash([]);
+      break;
+    default: // 'link'
+      ctx.strokeStyle = wire.color || theme.wireDefault;
+      ctx.setLineDash([]);
+      break;
+  }
 
   if (state.isHovered) {
     ctx.globalAlpha = 1;
@@ -420,11 +439,14 @@ export function drawWire(
       : Math.max(1, 2 * vt.zoom);
     ctx.globalAlpha = state.isActive ? theme.wireActiveAlpha : theme.wireInactiveAlpha;
   } else {
-    ctx.lineWidth = Math.max(1, 2 * vt.zoom);
+    ctx.lineWidth = wireType === 'tag'
+      ? Math.max(0.5, 1 * vt.zoom) // thinner for tag wires
+      : Math.max(1, 2 * vt.zoom);
     ctx.globalAlpha = theme.wireNormalAlpha;
   }
 
   ctx.stroke();
+  ctx.setLineDash([]);
   ctx.globalAlpha = 1;
 }
 

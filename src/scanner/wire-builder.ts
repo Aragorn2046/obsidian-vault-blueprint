@@ -40,6 +40,7 @@ export function buildWires(
           fromPin: `${sourceId}-out-${targetId}`,
           to: targetId,
           toPin: `${targetId}-in-${sourceId}`,
+          type: 'link',
         });
       }
     }
@@ -64,6 +65,7 @@ export function buildWires(
           fromPin: `${sourceId}-out-${targetId}`,
           to: targetId,
           toPin: `${targetId}-in-${sourceId}`,
+          type: 'link',
         });
       }
     }

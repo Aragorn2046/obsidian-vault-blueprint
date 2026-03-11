@@ -68,6 +68,7 @@ export async function buildSemanticWires(
         fromPin: `${node.id}-out-${targetNodeId}`,
         to: targetNodeId,
         toPin: `${targetNodeId}-in-${node.id}`,
+        type: 'semantic',
       });
     }
   }
