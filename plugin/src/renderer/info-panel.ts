@@ -244,6 +244,11 @@ export class InfoPanel {
 
   // ─── Public API ───────────────────────────────────────
 
+  /** Adjust right offset (e.g. when controls panel is open) */
+  setRightOffset(px: number): void {
+    this.el.style.right = `${12 + px}px`;
+  }
+
   /** Update theme colors */
   setTheme(theme: ThemeColors): void {
     this.theme = theme;

@@ -97,10 +97,11 @@ export class OrganicControlsPanel {
       this.emit();
     });
 
-    // Animate button
+    // Redistribute button
     const animBtn = document.createElement('button');
     animBtn.className = 'blueprint-organic-animate-btn';
-    animBtn.textContent = 'Animate';
+    animBtn.textContent = 'Redistribute';
+    animBtn.title = 'Restart physics simulation — nodes rearrange to reduce overlap and find optimal positions';
     animBtn.addEventListener('click', () => this.callbacks.onAnimate());
     this.el.appendChild(animBtn);
 

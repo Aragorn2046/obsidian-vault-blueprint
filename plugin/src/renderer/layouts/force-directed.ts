@@ -261,10 +261,12 @@ export class ForceSimulation {
     this.alpha += (this.alphaTarget - this.alpha) * this.alphaDecay;
 
     // Scale factors from 0-1 sliders to actual force magnitudes
-    const centerStrength = this.forces.centerForce * 0.05;
-    const repelStrength = this.forces.repelForce * 15000;
-    const linkStrength = this.forces.linkForce * 0.08;
-    const idealDist = 50 + this.forces.linkDistance * 400;
+    // Repulsion scales with sqrt(nodeCount) so large graphs auto-space
+    const nodeScale = Math.sqrt(Math.max(nodes.length, 10));
+    const centerStrength = this.forces.centerForce * 0.08;
+    const repelStrength = this.forces.repelForce * 25000 * (nodeScale / 3);
+    const linkStrength = this.forces.linkForce * 0.06;
+    const idealDist = 80 + this.forces.linkDistance * 500;
 
     // Reset forces
     for (const state of this.states.values()) {

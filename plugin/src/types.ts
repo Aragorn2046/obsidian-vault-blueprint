@@ -20,8 +20,8 @@ export interface OrganicForceSettings {
 export const DEFAULT_ORGANIC_FORCES: OrganicForceSettings = {
   centerForce: 0.3,
   repelForce: 0.5,
-  linkForce: 0.4,
-  linkDistance: 0.5,
+  linkForce: 0.3,
+  linkDistance: 0.4,
   nodeSize: 0.4,
   linkThickness: 0.3,
   arrows: true,

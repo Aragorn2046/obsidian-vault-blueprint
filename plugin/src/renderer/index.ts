@@ -915,6 +915,7 @@ export class BlueprintRenderer {
     const offset = isOpen ? 240 : 0;
     this.legend.setRightOffset(offset);
     this.minimap.setRightOffset(offset);
+    this.infoPanel.setRightOffset(offset);
   }
 
   /** Center on a specific node */
